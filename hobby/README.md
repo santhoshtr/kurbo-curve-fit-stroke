@@ -189,3 +189,65 @@ so the control points (`c1`, `c2`) are farther from the endpoints (`P0`, `P1`),
 allowing the curve to be full and round. The bottom curve has high tension, pull
 ing the control points in and making the path much more direct and flat.
 
+
+The angle convention used in this entire setup is the **standard mathematical an
+d computer graphics convention**.
+
+In short: **Angles increase in the counter-clockwise (anti-clockwise) direction.
+**
+
+### The Coordinate System
+
+Let's establish the frame of reference first. We are using a standard Cartesian
+coordinate system:
+
+*   The **X-axis** increases horizontally to the **right**.
+*   The **Y-axis** increases vertically **upwards**.
+
+### The Angle Convention
+
+Given this coordinate system, the angles are measured as follows:
+
+*  **0 degrees:** Points directly to the right (along the positive X-axis). This is "East".
+*  **90 degrees:** Points directly up (along the positive Y-axis). This is "North".
+*  **180 degrees:** Points directly to the left (along the negative X-axis).
+   This is "West".
+*  **270 degrees:** Points directly down (along the negative Y-axis). This is "South".
+*   **-90 degrees:** Is the same as 270 degrees (points down). Positive angles go counter-clockwise, and negative angles go clockwise.
+
+Here is a simple visual representation of the convention:
+
+```
+      +Y (90°)
+       |
+       |
+135°   |   45°
+_ _ _ _|_ _ _ _ +X (0°)
+       |
+225°   |   315°
+       |
+      -Y (270° or -90°)
+```
+
+
+
+Example: `(1,0)(dir 45) .. {dir 270}(0,1)`
+
+*   **`(1,0)(dir 45)`**: The curve leaves the point `(1,0)`. The direction `45°
+` is exactly halfway between `0°` (right) and `90°` (up). So, the curve will start moving **up and to the right (North-East)**.
+
+*   **`{dir 270}(0,1)`**: The curve arrives at the point `(0,1)`. The direction
+`270°` points straight **down (South)**.
+
+This means your curve will start at `(1,0)` heading North-East, will arc upwards
+ and leftwards, and will finally arrive at `(0,1)` from above, heading straight
+down.
+
+### Why This Convention?
+
+This convention is standard because it's the one used by the fundamental trigonometric
+function `atan2(y, x)`. This function is used in both the Python (`numpy.
+arctan2`) and Rust (`f64::atan2`) code to calculate the angle of the chord connecting
+two points. Since the algorithm's internal calculations are based on this
+standard, all user-provided angles must follow the same convention to work
+correctly.
