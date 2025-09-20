@@ -1,8 +1,0 @@
-[package]
-name = "bezier-solver"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-kurbo = {version = "0.12.0", features = ["std","serde"] }
-
