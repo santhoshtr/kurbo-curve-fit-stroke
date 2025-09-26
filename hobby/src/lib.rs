@@ -1,24 +1,135 @@
+//! # Hobby Curve Library
+//!
+//! This library implements John Hobby's algorithm for generating smooth curves through a sequence of points.
+//! The algorithm finds optimal cubic Bézier control points that create aesthetically pleasing curves
+//! with continuous curvature.
+//!
+//! ## Features
+//!
+//! - Generate smooth cubic Bézier curves through any sequence of points
+//! - Support for both open and closed (cyclic) paths
+//! - Configurable tension parameters for curve tightness control
+//! - Directional constraints for entry and exit angles at specific points
+//! - Automatic handling of coordinate system transformations
+//!
+//! ## Basic Usage
+//!
+//! ```rust
+//! use hobby::{hobby, point::Point};
+//!
+//! let points = vec![
+//!     Point::new(0.0, 0.0),
+//!     Point::new(100.0, 50.0),
+//!     Point::new(200.0, 0.0),
+//! ];
+//!
+//! let segments = hobby(&points, None, false, None, None);
+//!
+//! // Each segment contains (start_point, control_point_1, control_point_2, end_point)
+//! for segment in segments {
+//!     println!("Curve from {:?} to {:?}", segment.0, segment.3);
+//! }
+//! ```
+//!
+//! ## Advanced Usage with Angle Constraints
+//!
+//! ```rust
+//! use hobby::{hobby, point::Point};
+//! use std::collections::HashMap;
+//!
+//! let points = vec![
+//!     Point::new(0.0, 0.0),
+//!     Point::new(100.0, 100.0),
+//!     Point::new(200.0, 0.0),
+//! ];
+//!
+//! let mut exit_angles = HashMap::new();
+//! exit_angles.insert(0, 45.0); // Exit at 45 degrees from first point
+//!
+//! let mut entry_angles = HashMap::new();
+//! entry_angles.insert(2, -45.0); // Enter last point at -45 degrees
+//!
+//! let segments = hobby(&points, None, false, Some(&entry_angles), Some(&exit_angles));
+//! ```
+
 use nalgebra::{DMatrix, DVector};
 use std::collections::HashMap;
 
 use crate::point::Point;
 pub mod point;
-// The Point struct from above goes here...
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 /// Represents the four points defining a cubic Bézier curve.
+///
+/// The tuple contains (start_point, control_point_1, control_point_2, end_point).
+/// This is the standard representation for a cubic Bézier curve where:
+/// - `start_point`: The curve begins at this point
+/// - `control_point_1`: First control point, pulled from the start
+/// - `control_point_2`: Second control point, pulled toward the end
+/// - `end_point`: The curve ends at this point
 pub type BezierSegment = (Point, Point, Point, Point);
 
 /// Implements Hobby's algorithm for finding optimal Bézier control points.
 ///
+/// This function generates a sequence of cubic Bézier curve segments that pass through
+/// all the given points with smooth transitions and optimal curvature distribution.
+///
 /// # Arguments
-/// * `points` - The points the curve should pass through.
-/// * `tensions` - Optional tension at each point. Defaults to 1.0.
-/// * `cyclic` - Whether the curve is a closed loop.
-/// * `entry_angles` - A map from a point's index to its desired entry angle in degrees.
-/// * `exit_angles` - A map from a point's index to its desired exit angle in degrees.
+///
+/// * `points` - The points the curve should pass through. Must contain at least 2 points.
+/// * `tensions` - Optional tension at each point. Higher values create tighter curves.
+///               If `None`, defaults to 1.0 for all points. If provided, must have same length as `points`.
+/// * `cyclic` - Whether the curve is a closed loop (connects last point back to first).
+/// * `entry_angles` - A map from point index to desired entry angle in degrees.
+///                   Entry angle is the direction the curve approaches the point from.
+/// * `exit_angles` - A map from point index to desired exit angle in degrees.
+///                  Exit angle is the direction the curve leaves the point toward.
 ///
 /// # Returns
-/// A vector of `BezierSegment`s.
+///
+/// A vector of `BezierSegment`s representing the cubic Bézier curves.
+/// For non-cyclic curves with n points, returns n-1 segments.
+/// For cyclic curves with n points, returns n segments.
+///
+/// # Panics
+///
+/// Panics if the linear system for finding optimal angles has no solution.
+/// This should not happen with valid input data.
+///
+/// # Examples
+///
+/// ## Simple curve through three points
+///
+/// ```rust
+/// use hobby::{hobby, point::Point};
+///
+/// let points = vec![
+///     Point::new(0.0, 0.0),
+///     Point::new(50.0, 100.0),
+///     Point::new(100.0, 0.0),
+/// ];
+///
+/// let segments = hobby(&points, None, false, None, None);
+/// assert_eq!(segments.len(), 2); // Two segments for three points
+/// ```
+///
+/// ## Closed curve with tension control
+///
+/// ```rust
+/// use hobby::{hobby, point::Point};
+///
+/// let points = vec![
+///     Point::new(0.0, 0.0),
+///     Point::new(100.0, 0.0),
+///     Point::new(50.0, 100.0),
+/// ];
+///
+/// let tensions = vec![2.0, 1.0, 0.5]; // Vary tension at each point
+/// let segments = hobby(&points, Some(&tensions), true, None, None);
+/// assert_eq!(segments.len(), 3); // Three segments for closed triangle
+/// ```
 pub fn hobby(
     points: &[Point],
     tensions: Option<&[f64]>,
@@ -176,6 +287,10 @@ pub fn hobby(
     segments
 }
 
+/// Internal function for handling cyclic (closed) curves.
+///
+/// This implements the cyclic version of Hobby's algorithm where the curve forms
+/// a closed loop by connecting the last point back to the first point.
 fn hobby_cyclic(
     points: &[Point],
     tensions: Option<&[f64]>,
@@ -240,4 +355,275 @@ fn hobby_cyclic(
         segments.push((points[k], c1, c2, points[next_k]));
     }
     return segments;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    /// Helper function to check if two points are approximately equal
+    fn points_approx_equal(p1: Point, p2: Point, tolerance: f64) -> bool {
+        (p1.x - p2.x).abs() < tolerance && (p1.y - p2.y).abs() < tolerance
+    }
+
+    /// Helper function to check if a bezier segment passes through its endpoints
+    fn check_endpoints(segment: &BezierSegment, start: Point, end: Point) -> bool {
+        points_approx_equal(segment.0, start, 1e-10) && points_approx_equal(segment.3, end, 1e-10)
+    }
+
+    #[test]
+    fn test_empty_points() {
+        let points: Vec<Point> = vec![];
+        let segments = hobby(&points, None, false, None, None);
+        assert_eq!(segments.len(), 0);
+    }
+
+    #[test]
+    fn test_single_point() {
+        let points = vec![Point::new(0.0, 0.0)];
+        let segments = hobby(&points, None, false, None, None);
+        assert_eq!(segments.len(), 0);
+    }
+
+    #[test]
+    fn test_two_points() {
+        let points = vec![Point::new(0.0, 0.0), Point::new(100.0, 0.0)];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 1);
+        assert!(check_endpoints(&segments[0], points[0], points[1]));
+    }
+
+    #[test]
+    fn test_three_points_horizontal_line() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(50.0, 0.0),
+            Point::new(100.0, 0.0),
+        ];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Check that segments connect properly
+        assert!(check_endpoints(&segments[0], points[0], points[1]));
+        assert!(check_endpoints(&segments[1], points[1], points[2]));
+    }
+
+    #[test]
+    fn test_three_points_triangle() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 100.0),
+            Point::new(200.0, 0.0),
+        ];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Verify endpoints
+        assert!(check_endpoints(&segments[0], points[0], points[1]));
+        assert!(check_endpoints(&segments[1], points[1], points[2]));
+
+        // Check that control points are reasonable (not at infinity or NaN)
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_with_custom_tensions() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(50.0, 100.0),
+            Point::new(100.0, 0.0),
+        ];
+        let tensions = vec![2.0, 1.0, 0.5];
+        let segments = hobby(&points, Some(&tensions), false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Verify all segments have finite control points
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_with_exit_angles() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Point::new(200.0, 100.0),
+        ];
+
+        let mut exit_angles = HashMap::new();
+        exit_angles.insert(0, 45.0); // Exit first point at 45 degrees
+
+        let segments = hobby(&points, None, false, None, Some(&exit_angles));
+
+        assert_eq!(segments.len(), 2);
+
+        // The first control point should reflect the 45-degree exit angle
+        let first_segment = &segments[0];
+        let control_direction = first_segment.1 - first_segment.0;
+        let angle = control_direction.angle().to_degrees();
+
+        // Should be approximately 45 degrees (within tolerance for numerical precision)
+        assert!((angle - 45.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_with_entry_angles() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 100.0),
+            Point::new(200.0, 0.0),
+        ];
+
+        let mut entry_angles = HashMap::new();
+        entry_angles.insert(2, -45.0); // Enter last point at -45 degrees
+
+        let segments = hobby(&points, None, false, Some(&entry_angles), None);
+
+        assert_eq!(segments.len(), 2);
+
+        // All control points should be finite
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_cyclic_curve() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Point::new(50.0, 100.0),
+        ];
+        let segments = hobby(&points, None, true, None, None);
+
+        // For cyclic curve with 3 points, we should get 3 segments
+        assert_eq!(segments.len(), 3);
+
+        // Verify the cycle: last segment should end where first begins
+        assert!(check_endpoints(&segments[2], points[2], points[0]));
+
+        // Check all segments have finite control points
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_cyclic_square() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 0.0),
+            Point::new(100.0, 100.0),
+            Point::new(0.0, 100.0),
+        ];
+        let segments = hobby(&points, None, true, None, None);
+
+        assert_eq!(segments.len(), 4);
+
+        // Verify each segment connects properly
+        for i in 0..4 {
+            let next_i = (i + 1) % 4;
+            assert!(check_endpoints(&segments[i], points[i], points[next_i]));
+        }
+    }
+
+    #[test]
+    fn test_large_coordinate_values() {
+        let points = vec![
+            Point::new(1000000.0, 2000000.0),
+            Point::new(1500000.0, 2500000.0),
+            Point::new(2000000.0, 2000000.0),
+        ];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Should handle large coordinates without issues
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_negative_coordinates() {
+        let points = vec![
+            Point::new(-100.0, -50.0),
+            Point::new(-50.0, 100.0),
+            Point::new(100.0, -100.0),
+        ];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Should handle negative coordinates properly
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_very_close_points() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(0.001, 0.001),
+            Point::new(1.0, 1.0),
+        ];
+        let segments = hobby(&points, None, false, None, None);
+
+        assert_eq!(segments.len(), 2);
+
+        // Should handle very close points without numerical issues
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
+
+    #[test]
+    fn test_multiple_angle_constraints() {
+        let points = vec![
+            Point::new(0.0, 0.0),
+            Point::new(100.0, 50.0),
+            Point::new(200.0, 0.0),
+            Point::new(300.0, 100.0),
+        ];
+
+        let mut exit_angles = HashMap::new();
+        exit_angles.insert(0, 30.0);
+        exit_angles.insert(1, -60.0);
+
+        let mut entry_angles = HashMap::new();
+        entry_angles.insert(2, 120.0);
+        entry_angles.insert(3, 0.0);
+
+        let segments = hobby(
+            &points,
+            None,
+            false,
+            Some(&entry_angles),
+            Some(&exit_angles),
+        );
+
+        assert_eq!(segments.len(), 3);
+
+        // All segments should have finite control points
+        for segment in &segments {
+            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
+            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+        }
+    }
 }
