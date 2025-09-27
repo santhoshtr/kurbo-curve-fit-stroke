@@ -25,9 +25,10 @@
 //!
 //! let segments = hobby(&points, None, false, None, None);
 //!
-//! // Each segment contains (start_point, control_point_1, control_point_2, end_point)
+//! // Each segment is a BezierSegment struct with named fields
 //! for segment in segments {
-//!     println!("Curve from {:?} to {:?}", segment.0, segment.3);
+//!     println!("Curve from {} to {}", segment.start, segment.end);
+//!     println!("Control points: {}, {}", segment.control1, segment.control2);
 //! }
 //! ```
 //!
@@ -79,7 +80,8 @@ pub mod wasm;
 ///
 /// # Returns
 ///
-/// A vector of `BezierSegment`s representing the cubic Bézier curves.
+/// A vector of `BezierSegment` structs representing the cubic Bézier curves.
+/// Each segment contains four `Point` fields: `start`, `control1`, `control2`, and `end`.
 /// For non-cyclic curves with n points, returns n-1 segments.
 /// For cyclic curves with n points, returns n segments.
 ///
@@ -103,6 +105,13 @@ pub mod wasm;
 ///
 /// let segments = hobby(&points, None, false, None, None);
 /// assert_eq!(segments.len(), 2); // Two segments for three points
+///
+/// // Access the segment data
+/// let first_segment = &segments[0];
+/// println!("First segment starts at: {}", first_segment.start);
+/// println!("First control point: {}", first_segment.control1);
+/// println!("Second control point: {}", first_segment.control2);
+/// println!("First segment ends at: {}", first_segment.end);
 /// ```
 ///
 /// ## Closed curve with tension control

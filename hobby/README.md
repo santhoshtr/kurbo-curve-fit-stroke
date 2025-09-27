@@ -58,9 +58,10 @@ fn main() {
     // Generate the curve
     let segments = hobby(&points, None, false, None, None);
 
-    // Each segment is a cubic Bézier curve: (start, control1, control2, end)
+    // Each segment is a cubic Bézier curve with named fields
     for (i, segment) in segments.iter().enumerate() {
-        println!("Segment {}: {:?}", i, segment);
+        println!("Segment {}: start={}, control1={}, control2={}, end={}", 
+                 i, segment.start, segment.control1, segment.control2, segment.end);
     }
 }
 ```
@@ -390,8 +391,7 @@ pub fn hobby(
 - `exit_angles`: Map of point indices to exit angles in degrees
 
 **Returns:**
-- Vector of `BezierSegment` tuples: `(start_point, control_point_1,
-control_point_2, end_point)`
+- Vector of `BezierSegment` structs with fields: `start`, `control1`, `control2`, `end`
 
 ### Point Structure
 
@@ -405,6 +405,21 @@ impl Point {
     pub fn new(x: f64, y: f64) -> Self
     pub fn norm(&self) -> f64  // Distance from origin
     pub fn angle(&self) -> f64  // Angle in radians
+}
+```
+
+### BezierSegment Structure
+
+```rust
+pub struct BezierSegment {
+    pub start: Point,
+    pub control1: Point,
+    pub control2: Point,
+    pub end: Point,
+}
+
+impl BezierSegment {
+    pub fn new(start: Point, control1: Point, control2: Point, end: Point) -> Self
 }
 ```
 
@@ -437,6 +452,12 @@ let points = vec![
 ];
 
 let segments = hobby(&points, None, false, None, None);
+
+// Access segment data
+for segment in segments {
+    println!("Start: {}, End: {}", segment.start, segment.end);
+    println!("Control points: {}, {}", segment.control1, segment.control2);
+}
 ```
 
 ### Closed Curve with Tension
