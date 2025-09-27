@@ -55,21 +55,11 @@
 use nalgebra::{DMatrix, DVector};
 use std::collections::HashMap;
 
-use crate::point::Point;
+use crate::{point::Point, segment::BezierSegment};
 pub mod point;
-
+pub mod segment;
 #[cfg(feature = "wasm")]
 pub mod wasm;
-
-/// Represents the four points defining a cubic Bézier curve.
-///
-/// The tuple contains (start_point, control_point_1, control_point_2, end_point).
-/// This is the standard representation for a cubic Bézier curve where:
-/// - `start_point`: The curve begins at this point
-/// - `control_point_1`: First control point, pulled from the start
-/// - `control_point_2`: Second control point, pulled toward the end
-/// - `end_point`: The curve ends at this point
-pub type BezierSegment = (Point, Point, Point, Point);
 
 /// Implements Hobby's algorithm for finding optimal Bézier control points.
 ///
@@ -164,7 +154,7 @@ pub fn hobby(
         let c2_angle = (psi[0] - phi1).to_radians();
         let c2 =
             points[1] - Point::new(c2_angle.cos(), c2_angle.sin()) * (l[0] / (3.0 * tensions[1]));
-        return vec![(points[0], c1, c2, points[1])];
+        return vec![BezierSegment::new(points[0], c1, c2, points[1])];
     }
 
     let size = n - 2;
@@ -282,7 +272,7 @@ pub fn hobby(
         let c2_angle = (psi[k] - phi[k + 1]).to_radians();
         let c2 = points[k + 1]
             - Point::new(c2_angle.cos(), c2_angle.sin()) * (l[k] / (3.0 * tensions[k + 1]));
-        segments.push((points[k], c1, c2, points[k + 1]));
+        segments.push(BezierSegment::new(points[k], c1, c2, points[k + 1]));
     }
     segments
 }
@@ -352,7 +342,7 @@ fn hobby_cyclic(
         let c2 = points[next_k]
             - Point::new(c2_angle.cos(), c2_angle.sin()) * (l[k] / (3.0 * tensions[next_k]));
 
-        segments.push((points[k], c1, c2, points[next_k]));
+        segments.push(BezierSegment::new(points[k], c1, c2, points[next_k]));
     }
     return segments;
 }
@@ -369,7 +359,8 @@ mod tests {
 
     /// Helper function to check if a bezier segment passes through its endpoints
     fn check_endpoints(segment: &BezierSegment, start: Point, end: Point) -> bool {
-        points_approx_equal(segment.0, start, 1e-10) && points_approx_equal(segment.3, end, 1e-10)
+        points_approx_equal(segment.start, start, 1e-10)
+            && points_approx_equal(segment.end, end, 1e-10)
     }
 
     #[test]
@@ -428,8 +419,8 @@ mod tests {
 
         // Check that control points are reasonable (not at infinity or NaN)
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -447,8 +438,8 @@ mod tests {
 
         // Verify all segments have finite control points
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -469,7 +460,7 @@ mod tests {
 
         // The first control point should reflect the 45-degree exit angle
         let first_segment = &segments[0];
-        let control_direction = first_segment.1 - first_segment.0;
+        let control_direction = first_segment.control1 - first_segment.start;
         let angle = control_direction.angle().to_degrees();
 
         // Should be approximately 45 degrees (within tolerance for numerical precision)
@@ -493,8 +484,8 @@ mod tests {
 
         // All control points should be finite
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -515,8 +506,8 @@ mod tests {
 
         // Check all segments have finite control points
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -552,8 +543,8 @@ mod tests {
 
         // Should handle large coordinates without issues
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -570,8 +561,8 @@ mod tests {
 
         // Should handle negative coordinates properly
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -588,8 +579,8 @@ mod tests {
 
         // Should handle very close points without numerical issues
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 
@@ -622,8 +613,8 @@ mod tests {
 
         // All segments should have finite control points
         for segment in &segments {
-            assert!(segment.1.x.is_finite() && segment.1.y.is_finite());
-            assert!(segment.2.x.is_finite() && segment.2.y.is_finite());
+            assert!(segment.control1.x.is_finite() && segment.control1.y.is_finite());
+            assert!(segment.control2.x.is_finite() && segment.control2.y.is_finite());
         }
     }
 }

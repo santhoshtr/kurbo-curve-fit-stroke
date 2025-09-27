@@ -4,21 +4,17 @@ use crate::{hobby, point::Point, BezierSegment};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use wasm_bindgen::prelude::*;
+use web_sys::console;
 
 // Use wee_alloc as the global allocator for smaller WASM size
 #[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
-// Enable console.log! from wasm
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = console)]
-    fn log(s: &str);
-}
-
 macro_rules! console_log {
-    ($($t:tt)*) => (log(&format_args!($($t)*).to_string()))
+    ($($t:tt)*) => {
+        console::log_1(&format!($($t)*).into());
+    }
 }
 
 /// A point that can be passed between JavaScript and WebAssembly
@@ -138,14 +134,14 @@ impl WebBezierSegment {
 impl From<BezierSegment> for WebBezierSegment {
     fn from(segment: BezierSegment) -> Self {
         WebBezierSegment {
-            start_x: segment.0.x,
-            start_y: segment.0.y,
-            cp1_x: segment.1.x,
-            cp1_y: segment.1.y,
-            cp2_x: segment.2.x,
-            cp2_y: segment.2.y,
-            end_x: segment.3.x,
-            end_y: segment.3.y,
+            start_x: segment.start.x,
+            start_y: segment.start.y,
+            cp1_x: segment.control1.x,
+            cp1_y: segment.control1.y,
+            cp2_x: segment.control2.x,
+            cp2_y: segment.control2.y,
+            end_x: segment.end.x,
+            end_y: segment.end.y,
         }
     }
 }
@@ -210,10 +206,11 @@ pub fn hobby_curve(points: Vec<WebPoint>, options: Option<HobbyOptions>) -> Vec<
         console_log!("Not enough points for curve generation");
         return vec![];
     }
-
     // Convert WebPoints to internal Points
     let internal_points: Vec<Point> = points.iter().map(|p| (*p).into()).collect();
-
+    for internal_point in &internal_points {
+        console_log!("{}", internal_point);
+    }
     let opts = options.unwrap_or_default();
 
     // Prepare optional parameters
@@ -248,6 +245,9 @@ pub fn hobby_curve(points: Vec<WebPoint>, options: Option<HobbyOptions>) -> Vec<
 
     console_log!("Generated {} segments", segments.len());
 
+    for seg in &segments {
+        console_log!("{}", seg);
+    }
     // Convert to web-friendly format
     segments.into_iter().map(|seg| seg.into()).collect()
 }

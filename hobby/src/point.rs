@@ -1,3 +1,4 @@
+use std::fmt::{Display, Formatter, Result as FmtResult};
 use std::ops::{Add, Div, Mul, Sub};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -19,6 +20,12 @@ impl Point {
     // Calculate the angle in radians
     pub fn angle(&self) -> f64 {
         self.y.atan2(self.x)
+    }
+}
+
+impl Display for Point {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        write!(f, "({:.2}, {:.2})", self.x, self.y)
     }
 }
 
