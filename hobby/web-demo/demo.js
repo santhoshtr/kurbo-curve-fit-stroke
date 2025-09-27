@@ -309,9 +309,9 @@ class HobbyCurveDemo {
         { x: 400, y: 300 },
       ],
       triangle: [
-        { x: 200, y: 400 },
-        { x: 400, y: 400 },
-        { x: 300, y: 200 },
+        { x: 0, y: 0 },
+        { x: 100, y: 100 },
+        { x: 200, y: 0 },
       ],
       square: [
         { x: 200, y: 200 },
@@ -516,15 +516,13 @@ class HobbyCurveDemo {
             <p><strong>Point ${pointIndex} Angles</strong></p>
             <div class="angle-control">
                 <label>Entry:</label>
-                <input type="number" id="entryAngle" value="${angles.entry || ""}" 
-                       placeholder="auto" min="-360" max="360" step="1">°
-                <button onclick="demo.clearEntryAngle()" class="btn btn-small">Clear</button>
+                <input type="number" id="entryAngle" value="${angles.entry || 0.0}" 
+                       placeholder="auto" min="-360" max="360" step="1">
             </div>
             <div class="angle-control">
                 <label>Exit:</label>
-                <input type="number" id="exitAngle" value="${angles.exit || ""}" 
-                       placeholder="auto" min="-360" max="360" step="1">°
-                <button onclick="demo.clearExitAngle()" class="btn btn-small">Clear</button>
+                <input type="number" id="exitAngle" value="${angles.exit || 0.0}" 
+                       placeholder="auto" min="-360" max="360" step="1">
             </div>
         `;
 
