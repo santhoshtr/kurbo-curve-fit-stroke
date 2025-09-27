@@ -30,6 +30,24 @@ class HobbyCurveDemo {
     this.canvasRect = null;
   }
 
+  // Convert screen coordinates to Cartesian coordinates
+  screenToCartesian(screenX, screenY) {
+    const canvasHeight = this.canvas.getBoundingClientRect().height;
+    return {
+      x: screenX,
+      y: canvasHeight - screenY, // Flip Y coordinate
+    };
+  }
+
+  // Convert Cartesian coordinates to screen coordinates
+  cartesianToScreen(cartX, cartY) {
+    const canvasHeight = this.canvas.getBoundingClientRect().height;
+    return {
+      x: cartX,
+      y: canvasHeight - cartY, // Flip Y coordinate
+    };
+  }
+
   async init() {
     try {
       // Initialize WASM module
@@ -146,19 +164,21 @@ class HobbyCurveDemo {
 
   getMousePos(e) {
     const rect = this.canvasRect;
-    return {
+    const screenPos = {
       x: e.clientX - rect.left,
       y: e.clientY - rect.top,
     };
+    return this.screenToCartesian(screenPos.x, screenPos.y);
   }
 
   getTouchPos(e) {
     const rect = this.canvasRect;
     const touch = e.touches[0];
-    return {
+    const screenPos = {
       x: touch.clientX - rect.left,
       y: touch.clientY - rect.top,
     };
+    return this.screenToCartesian(screenPos.x, screenPos.y);
   }
 
   onMouseDown(e) {
@@ -195,7 +215,11 @@ class HobbyCurveDemo {
         y: pos.y - this.dragOffset.y,
       };
       this.updateDisplay();
-      this.showPointInfo(pos.x, pos.y, this.selectedPointIndex);
+      this.showPointInfo(
+        e.clientX - this.canvasRect.left,
+        e.clientY - this.canvasRect.top,
+        this.selectedPointIndex,
+      );
     } else {
       // Update cursor based on hover
       const pointIndex = this.findPointAt(pos.x, pos.y);
@@ -203,7 +227,11 @@ class HobbyCurveDemo {
 
       // Show point info on hover
       if (pointIndex !== -1) {
-        this.showPointInfo(pos.x, pos.y, pointIndex);
+        this.showPointInfo(
+          e.clientX - this.canvasRect.left,
+          e.clientY - this.canvasRect.top,
+          pointIndex,
+        );
       } else {
         this.hidePointInfo();
       }
@@ -230,18 +258,22 @@ class HobbyCurveDemo {
   onTouchStart(e) {
     e.preventDefault();
     const pos = this.getTouchPos(e);
+    // Convert back to screen coordinates for the event simulation
+    const screenPos = this.cartesianToScreen(pos.x, pos.y);
     this.onMouseDown({
-      clientX: pos.x + this.canvasRect.left,
-      clientY: pos.y + this.canvasRect.top,
+      clientX: screenPos.x + this.canvasRect.left,
+      clientY: screenPos.y + this.canvasRect.top,
     });
   }
 
   onTouchMove(e) {
     e.preventDefault();
     const pos = this.getTouchPos(e);
+    // Convert back to screen coordinates for the event simulation
+    const screenPos = this.cartesianToScreen(pos.x, pos.y);
     this.onMouseMove({
-      clientX: pos.x + this.canvasRect.left,
-      clientY: pos.y + this.canvasRect.top,
+      clientX: screenPos.x + this.canvasRect.left,
+      clientY: screenPos.y + this.canvasRect.top,
     });
   }
 
@@ -301,17 +333,19 @@ class HobbyCurveDemo {
   }
 
   loadPreset(name) {
+    const canvasHeight = this.canvas.getBoundingClientRect().height;
+
     const presets = {
       "s-curve": [
-        { x: 100, y: 300 },
-        { x: 200, y: 200 },
-        { x: 300, y: 400 },
-        { x: 400, y: 300 },
+        { x: 100, y: 200 }, // Convert to Cartesian
+        { x: 200, y: 300 },
+        { x: 300, y: 100 },
+        { x: 400, y: 200 },
       ],
       triangle: [
-        { x: 0, y: 0 },
-        { x: 100, y: 100 },
-        { x: 200, y: 0 },
+        { x: 100, y: 100 }, // Bottom-left origin
+        { x: 300, y: 300 },
+        { x: 500, y: 100 },
       ],
       square: [
         { x: 200, y: 200 },
@@ -336,7 +370,7 @@ class HobbyCurveDemo {
     }
 
     try {
-      // Convert points to WebPoint objects
+      // Convert points to WebPoint objects (no coordinate conversion needed - hobby expects Cartesian)
       const webPoints = this.points.map((p) => new WebPoint(p.x, p.y));
 
       // Create options
@@ -360,8 +394,7 @@ class HobbyCurveDemo {
           options.add_exit_angle(pointIndex, angles.exit);
         }
       }
-      console.dir({ webPoints });
-      console.dir({ options });
+
       // Generate curve
       return hobby_curve(webPoints, options);
     } catch (error) {
@@ -402,18 +435,26 @@ class HobbyCurveDemo {
 
     ctx.beginPath();
 
-    // Move to start of first segment
-    ctx.moveTo(segments[0].start_x, segments[0].start_y);
+    // Convert first point to screen coordinates
+    const startScreen = this.cartesianToScreen(
+      segments[0].start_x,
+      segments[0].start_y,
+    );
+    ctx.moveTo(startScreen.x, startScreen.y);
 
-    // Draw all curve segments
+    // Draw all curve segments with coordinate conversion
     for (const segment of segments) {
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+      const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
+
       ctx.bezierCurveTo(
-        segment.cp1_x,
-        segment.cp1_y,
-        segment.cp2_x,
-        segment.cp2_y,
-        segment.end_x,
-        segment.end_y,
+        cp1Screen.x,
+        cp1Screen.y,
+        cp2Screen.x,
+        cp2Screen.y,
+        endScreen.x,
+        endScreen.y,
       );
     }
 
@@ -429,16 +470,25 @@ class HobbyCurveDemo {
     ctx.setLineDash([5, 5]);
 
     for (const segment of segments) {
+      // Convert all points to screen coordinates
+      const startScreen = this.cartesianToScreen(
+        segment.start_x,
+        segment.start_y,
+      );
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+      const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
+
       // Line from start to first control point
       ctx.beginPath();
-      ctx.moveTo(segment.start_x, segment.start_y);
-      ctx.lineTo(segment.cp1_x, segment.cp1_y);
+      ctx.moveTo(startScreen.x, startScreen.y);
+      ctx.lineTo(cp1Screen.x, cp1Screen.y);
       ctx.stroke();
 
       // Line from second control point to end
       ctx.beginPath();
-      ctx.moveTo(segment.cp2_x, segment.cp2_y);
-      ctx.lineTo(segment.end_x, segment.end_y);
+      ctx.moveTo(cp2Screen.x, cp2Screen.y);
+      ctx.lineTo(endScreen.x, endScreen.y);
       ctx.stroke();
     }
 
@@ -448,14 +498,17 @@ class HobbyCurveDemo {
     ctx.fillStyle = "#cba6f7";
 
     for (const segment of segments) {
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+
       // First control point
       ctx.beginPath();
-      ctx.arc(segment.cp1_x, segment.cp1_y, 4, 0, Math.PI * 2);
+      ctx.arc(cp1Screen.x, cp1Screen.y, 4, 0, Math.PI * 2);
       ctx.fill();
 
       // Second control point
       ctx.beginPath();
-      ctx.arc(segment.cp2_x, segment.cp2_y, 4, 0, Math.PI * 2);
+      ctx.arc(cp2Screen.x, cp2Screen.y, 4, 0, Math.PI * 2);
       ctx.fill();
     }
   }
@@ -467,13 +520,16 @@ class HobbyCurveDemo {
       const point = this.points[i];
       const isSelected = i === this.selectedPointIndex;
 
+      // Convert to screen coordinates for drawing
+      const screenPos = this.cartesianToScreen(point.x, point.y);
+
       // Point circle
       ctx.fillStyle = isSelected ? "#f38ba8" : "#11111b";
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2;
 
       ctx.beginPath();
-      ctx.arc(point.x, point.y, isSelected ? 8 : 6, 0, Math.PI * 2);
+      ctx.arc(screenPos.x, screenPos.y, isSelected ? 8 : 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();
 
@@ -481,18 +537,18 @@ class HobbyCurveDemo {
       ctx.fillStyle = "Highlight";
       ctx.font = "12px monospace";
       ctx.textAlign = "center";
-      ctx.fillText(`${i}`, point.x, point.y - 12);
+      ctx.fillText(`${i}`, screenPos.x, screenPos.y - 12);
     }
   }
 
-  showPointInfo(x, y, pointIndex) {
+  showPointInfo(screenX, screenY, pointIndex) {
     const pointInfo = document.getElementById("pointInfo");
     const point = this.points[pointIndex];
 
     pointInfo.innerHTML = `Point ${pointIndex}: (${Math.round(point.x)}, ${Math.round(point.y)})`;
     pointInfo.style.display = "block";
-    pointInfo.style.left = x + 10 + "px";
-    pointInfo.style.top = y - 30 + "px";
+    pointInfo.style.left = screenX + 10 + "px";
+    pointInfo.style.top = screenY - 30 + "px";
   }
 
   hidePointInfo() {
@@ -606,8 +662,9 @@ class HobbyCurveDemo {
       }
 
       const pathData = hobby_to_svg_path(webPoints, options);
+      const canvasHeight = this.canvas.getBoundingClientRect().height;
 
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${this.canvas.height}">
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${canvasHeight}">
   <path d="${pathData}" fill="none" stroke="#667eea" stroke-width="3" stroke-linecap="round"/>
 </svg>`;
 
