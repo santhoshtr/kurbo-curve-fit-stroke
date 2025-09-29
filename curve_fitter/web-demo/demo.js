@@ -1,13 +1,13 @@
 // Import WASM module
 import init, {
-  hobby_curve,
-  hobby_to_svg_path,
+  fit_curve,
+  curve_to_svg_path,
   WebPoint,
-  HobbyOptions,
+  CurveFitterOptions,
   version,
-} from "../pkg/hobby.js";
+} from "../pkg/curve_fitter.js";
 
-class HobbyCurveDemo {
+class CurveFitterDemo {
   constructor() {
     this.canvas = null;
     this.ctx = null;
@@ -19,7 +19,6 @@ class HobbyCurveDemo {
     // Settings
     this.settings = {
       cyclic: false,
-      tension: 1.0,
       showControlPoints: true,
     };
 
@@ -52,7 +51,7 @@ class HobbyCurveDemo {
     try {
       // Initialize WASM module
       await init();
-      console.log(`Hobby WASM module loaded, version: ${version()}`);
+      console.log(`Curve Fitter WASM module loaded, version: ${version()}`);
 
       this.setupCanvas();
       this.setupControls();
@@ -87,16 +86,6 @@ class HobbyCurveDemo {
   }
 
   setupControls() {
-    // Tension slider
-    const tensionSlider = document.getElementById("tensionSlider");
-    const tensionValue = document.getElementById("tensionValue");
-
-    tensionSlider.addEventListener("input", (e) => {
-      this.settings.tension = parseFloat(e.target.value);
-      tensionValue.textContent = this.settings.tension.toFixed(1);
-      this.updateDisplay();
-    });
-
     // Checkboxes
     document
       .getElementById("cyclicCheckbox")
@@ -194,12 +183,10 @@ class HobbyCurveDemo {
         y: pos.y - this.points[pointIndex].y,
       };
       this.canvas.style.cursor = "grabbing";
-      this.updateAngleControls();
     } else {
       // Add new point
       this.addPoint(pos.x, pos.y);
       this.selectedPointIndex = this.points.length - 1;
-      this.updateAngleControls();
     }
 
     this.updateDisplay();
@@ -320,7 +307,6 @@ class HobbyCurveDemo {
       this.selectedPointIndex--;
     }
 
-    this.updateAngleControls();
     this.updateDisplay();
   }
 
@@ -328,7 +314,6 @@ class HobbyCurveDemo {
     this.points = [];
     this.pointAngles.clear();
     this.selectedPointIndex = -1;
-    this.updateAngleControls();
     this.updateDisplay();
   }
 
@@ -359,7 +344,6 @@ class HobbyCurveDemo {
       this.points = [...presets[name]];
       this.pointAngles.clear();
       this.selectedPointIndex = -1;
-      this.updateAngleControls();
       this.updateDisplay();
     }
   }
@@ -374,29 +358,11 @@ class HobbyCurveDemo {
       const webPoints = this.points.map((p) => new WebPoint(p.x, p.y));
 
       // Create options
-      const options = new HobbyOptions();
+      const options = new CurveFitterOptions();
       options.set_cyclic(this.settings.cyclic);
 
-      // Set tensions if different from default
-      if (this.settings.tension !== 1.0) {
-        const tensions = new Array(this.points.length).fill(
-          this.settings.tension,
-        );
-        options.set_tensions(tensions);
-      }
-
-      // Set angle constraints
-      for (const [pointIndex, angles] of this.pointAngles.entries()) {
-        if (angles.entry !== undefined) {
-          options.add_entry_angle(pointIndex, angles.entry);
-        }
-        if (angles.exit !== undefined) {
-          options.add_exit_angle(pointIndex, angles.exit);
-        }
-      }
-
       // Generate curve
-      return hobby_curve(webPoints, options);
+      return fit_curve(webPoints, options);
     } catch (error) {
       console.error("Error generating curve:", error);
       return [];
@@ -556,84 +522,6 @@ class HobbyCurveDemo {
     pointInfo.style.display = "none";
   }
 
-  updateAngleControls() {
-    const container = document.getElementById("angleControls");
-
-    if (this.selectedPointIndex === -1 || this.points.length === 0) {
-      container.innerHTML =
-        '<p class="help-text">Select a point to set entry/exit angles</p>';
-      return;
-    }
-
-    const pointIndex = this.selectedPointIndex;
-    const angles = this.pointAngles.get(pointIndex) || {};
-
-    container.innerHTML = `
-            <p><strong>Point ${pointIndex} Angles</strong></p>
-            <div class="angle-control">
-                <label>Entry:</label>
-                <input type="number" id="entryAngle" value="${angles.entry || 0.0}" 
-                       placeholder="auto" min="-360" max="360" step="1">
-            </div>
-            <div class="angle-control">
-                <label>Exit:</label>
-                <input type="number" id="exitAngle" value="${angles.exit || 0.0}" 
-                       placeholder="auto" min="-360" max="360" step="1">
-            </div>
-        `;
-
-    // Add event listeners
-    document.getElementById("entryAngle").addEventListener("input", (e) => {
-      this.setEntryAngle(parseFloat(e.target.value) || undefined);
-    });
-
-    document.getElementById("exitAngle").addEventListener("input", (e) => {
-      this.setExitAngle(parseFloat(e.target.value) || undefined);
-    });
-  }
-
-  setEntryAngle(angle) {
-    if (this.selectedPointIndex === -1) return;
-
-    const pointIndex = this.selectedPointIndex;
-    const angles = this.pointAngles.get(pointIndex) || {};
-
-    if (angle !== undefined && !isNaN(angle)) {
-      angles.entry = angle;
-    } else {
-      delete angles.entry;
-    }
-
-    this.pointAngles.set(pointIndex, angles);
-    this.updateDisplay();
-  }
-
-  setExitAngle(angle) {
-    if (this.selectedPointIndex === -1) return;
-
-    const pointIndex = this.selectedPointIndex;
-    const angles = this.pointAngles.get(pointIndex) || {};
-
-    if (angle !== undefined && !isNaN(angle)) {
-      angles.exit = angle;
-    } else {
-      delete angles.exit;
-    }
-
-    this.pointAngles.set(pointIndex, angles);
-    this.updateDisplay();
-  }
-
-  clearEntryAngle() {
-    this.setEntryAngle(undefined);
-    this.updateAngleControls();
-  }
-
-  clearExitAngle() {
-    this.setExitAngle(undefined);
-    this.updateAngleControls();
-  }
-
   updateSvgOutput() {
     if (this.points.length < 2) {
       document.getElementById("svgOutput").value = "";
@@ -642,26 +530,9 @@ class HobbyCurveDemo {
 
     try {
       const webPoints = this.points.map((p) => new WebPoint(p.x, p.y));
-      const options = new HobbyOptions();
+      const options = new CurveFitterOptions();
       options.set_cyclic(this.settings.cyclic);
-
-      if (this.settings.tension !== 1.0) {
-        const tensions = new Array(this.points.length).fill(
-          this.settings.tension,
-        );
-        options.set_tensions(tensions);
-      }
-
-      for (const [pointIndex, angles] of this.pointAngles.entries()) {
-        if (angles.entry !== undefined) {
-          options.add_entry_angle(pointIndex, angles.entry);
-        }
-        if (angles.exit !== undefined) {
-          options.add_exit_angle(pointIndex, angles.exit);
-        }
-      }
-
-      const pathData = hobby_to_svg_path(webPoints, options);
+      const pathData = curve_to_svg_path(webPoints, options);
       const canvasHeight = this.canvas.getBoundingClientRect().height;
 
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${canvasHeight}">
@@ -729,7 +600,7 @@ class HobbyCurveDemo {
 }
 
 // Initialize the demo
-const demo = new HobbyCurveDemo();
+const demo = new CurveFitterDemo();
 window.demo = demo; // Make it global for button onclick handlers
 
 document.addEventListener("DOMContentLoaded", () => {

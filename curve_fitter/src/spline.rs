@@ -1,6 +1,6 @@
 use kurbo::{BezPath, Point};
 
-use crate::{ControlPoint, InputPoint, MyCurve, two_param_spline::TwoParamSpline};
+use crate::{ControlPoint, InputPoint, TwoParamCurve, two_param_spline::TwoParamSpline};
 
 pub struct Spline {
     ctrl_pts: Vec<ControlPoint>,
@@ -20,7 +20,7 @@ impl Spline {
         }
     }
 
-    pub fn solve(&mut self, curve: &MyCurve) -> Result<(), String> {
+    pub fn solve(&mut self, curve: &TwoParamCurve) -> Result<(), String> {
         if self.ctrl_pts.len() < 2 {
             return Err("Need at least 2 points".to_string());
         }
@@ -49,7 +49,7 @@ impl Spline {
         Ok(())
     }
 
-    pub fn render(&self, curve: &MyCurve) -> BezPath {
+    pub fn render(&self, curve: &TwoParamCurve) -> BezPath {
         let points: Vec<Point> = self.ctrl_pts.iter().map(|cp| cp.pt).collect();
         let mut spline = TwoParamSpline::new(points);
 

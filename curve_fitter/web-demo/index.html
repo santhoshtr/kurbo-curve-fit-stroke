@@ -4,13 +4,14 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hobby Curve Interactive Demo</title>
+  <title>Curve fitter demo</title>
+  <meta name="description" content="Implementation of smooth curves algorithm by Raph Levien">
   <link rel="stylesheet" href="styles.css">
 </head>
 
 <body>
   <div class="canvas-container">
-      <canvas id="curveCanvas"></canvas>
+    <canvas id="curveCanvas"></canvas>
     <div class="canvas-overlay">
       <div id="pointInfo" class="point-info"></div>
     </div>
@@ -18,7 +19,9 @@
 
   <div class="controls">
     <header>
-      <h1>Hobby Curves</h1>
+      <h1>Curve fitter</h1>
+      <p>Implementation of <a href="https://raphlinus.github.io/curves/2018/12/21/new-spline.html">smooth curves
+          algorithm</a> by Raph Levien</p>
       <p>Click to add points, drag to move them. Watch smooth curves form in real-time!</p>
     </header>
 
@@ -28,9 +31,6 @@
         <label>
           <input type="checkbox" id="cyclicCheckbox"> Closed curve
         </label>
-
-        <label for="tensionSlider">Global Tension: <span id="tensionValue">1.0</span>        <input type="range" id="tensionSlider" min="0.1" max="3.0" step="0.1" value="1.0">
-</label>
 
         <label>
           <input type="checkbox" id="showControlPoints" checked> Show control points
@@ -43,11 +43,6 @@
           <button id="loadPreset3" class="btn btn-small">Square</button>
         </div>
 
-        <div id="angleControls">
-          <p class="help-text">Select a point to set entry/exit angles</p>
-        </div>
-
-      </section>
     </details>
 
 
@@ -66,7 +61,6 @@
         <li><strong>Add points:</strong> Click anywhere on the canvas</li>
         <li><strong>Move points:</strong> Drag existing points</li>
         <li><strong>Remove points:</strong> Right-click on a point</li>
-        <li><strong>Set angles:</strong> Select a point and use the angle controls</li>
         <li><strong>Closed curves:</strong> Check "Closed curve" to connect the last point to the first</li>
       </ul>
     </details>

@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use kurbo::{BezPath, Point};
 
-use crate::{CurvatureResult, MyCurve, SegmentParams};
+use crate::{CurvatureResult, TwoParamCurve, SegmentParams};
 
 pub struct TwoParamSpline {
     ctrl_pts: Vec<Point>,
@@ -88,7 +88,7 @@ impl TwoParamSpline {
     }
 
     /// Perform one iteration of the curve fitting solver
-    pub fn iter_solver(&mut self, iter: usize, curve: &MyCurve) -> f64 {
+    pub fn iter_solver(&mut self, iter: usize, curve: &TwoParamCurve) -> f64 {
         let n = self.ctrl_pts.len();
         if n < 3 {
             return 0.0;
@@ -156,7 +156,7 @@ impl TwoParamSpline {
         a0 - a1
     }
 
-    pub fn render_svg(&self, curve: &MyCurve) -> BezPath {
+    pub fn render_svg(&self, curve: &TwoParamCurve) -> BezPath {
         let mut path = BezPath::new();
         if self.ctrl_pts.is_empty() {
             return path;
