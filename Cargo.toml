@@ -2,6 +2,6 @@
 resolver = "3"
 members = [
   "chi-parser",
-  "hobby"
+  "curve_fitter"
 ]
 
