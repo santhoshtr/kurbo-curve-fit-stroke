@@ -3,6 +3,7 @@ import init, {
   fit_curve,
   curve_to_svg_path,
   WebPoint,
+  WebPointType,
   CurveFitterOptions,
   version,
 } from "../pkg/curve_fitter.js";
@@ -22,8 +23,8 @@ class CurveFitterDemo {
       showControlPoints: true,
     };
 
-    // Point angles
-    this.pointAngles = new Map(); // pointIndex -> {entry?: number, exit?: number}
+    // Point types (0 = Smooth, 1 = Corner)
+    this.pointTypes = [];
 
     // Canvas state
     this.canvasRect = null;
@@ -134,11 +135,15 @@ class CurveFitterDemo {
     this.canvas.addEventListener("mousemove", (e) => this.onMouseMove(e));
     this.canvas.addEventListener("mouseup", (e) => this.onMouseUp(e));
     this.canvas.addEventListener("contextmenu", (e) => this.onContextMenu(e));
+    this.canvas.addEventListener("dblclick", (e) => this.onDoubleClick(e));
 
     // Touch events for mobile
     this.canvas.addEventListener("touchstart", (e) => this.onTouchStart(e));
     this.canvas.addEventListener("touchmove", (e) => this.onTouchMove(e));
     this.canvas.addEventListener("touchend", (e) => this.onTouchEnd(e));
+
+    // Keyboard events
+    window.addEventListener("keydown", (e) => this.onKeyDown(e));
 
     // Window resize
     window.addEventListener("resize", () => {
@@ -175,7 +180,7 @@ class CurveFitterDemo {
     const pointIndex = this.findPointAt(pos.x, pos.y);
 
     if (pointIndex !== -1) {
-      // Start dragging existing point
+      // Select and start dragging existing point
       this.selectedPointIndex = pointIndex;
       this.dragging = true;
       this.dragOffset = {
@@ -184,12 +189,33 @@ class CurveFitterDemo {
       };
       this.canvas.style.cursor = "grabbing";
     } else {
-      // Add new point
-      this.addPoint(pos.x, pos.y);
-      this.selectedPointIndex = this.points.length - 1;
+      // Deselect when clicking empty space
+      this.selectedPointIndex = -1;
     }
 
     this.updateDisplay();
+  }
+
+  onDoubleClick(e) {
+    const pos = this.getMousePos(e);
+    const pointIndex = this.findPointAt(pos.x, pos.y);
+
+    if (pointIndex !== -1) {
+      this.togglePointType(pointIndex);
+      this.updateDisplay();
+    }
+  }
+
+  onKeyDown(e) {
+    // Handle Delete/Backspace keys
+    if (
+      (e.key === "Delete" || e.key === "Backspace") &&
+      this.selectedPointIndex !== -1
+    ) {
+      this.removePoint(this.selectedPointIndex);
+      e.preventDefault(); // Prevent browser default behavior
+      return;
+    }
   }
 
   onMouseMove(e) {
@@ -236,8 +262,9 @@ class CurveFitterDemo {
     const pos = this.getMousePos(e);
     const pointIndex = this.findPointAt(pos.x, pos.y);
 
-    if (pointIndex !== -1) {
-      this.removePoint(pointIndex);
+    if (pointIndex === -1) {
+      // Right-click on empty space adds a new point
+      this.addPointAtPosition(pos.x, pos.y);
     }
   }
 
@@ -281,25 +308,16 @@ class CurveFitterDemo {
     return -1;
   }
 
-  addPoint(x, y) {
+  addPointAtPosition(x, y) {
     this.points.push({ x, y });
+    this.pointTypes.push(0); // Default to Smooth
+    this.selectedPointIndex = this.points.length - 1; // Select the new point
     this.updateDisplay();
   }
 
   removePoint(index) {
     this.points.splice(index, 1);
-    this.pointAngles.delete(index);
-
-    // Reindex remaining angles
-    const newAngles = new Map();
-    for (const [pointIndex, angles] of this.pointAngles.entries()) {
-      if (pointIndex > index) {
-        newAngles.set(pointIndex - 1, angles);
-      } else if (pointIndex < index) {
-        newAngles.set(pointIndex, angles);
-      }
-    }
-    this.pointAngles = newAngles;
+    this.pointTypes.splice(index, 1);
 
     if (this.selectedPointIndex === index) {
       this.selectedPointIndex = -1;
@@ -310,39 +328,53 @@ class CurveFitterDemo {
     this.updateDisplay();
   }
 
+  togglePointType(index) {
+    if (index >= 0 && index < this.pointTypes.length) {
+      // Toggle between Smooth (0) and Corner (1)
+      this.pointTypes[index] = this.pointTypes[index] === 0 ? 1 : 0;
+    }
+  }
+
   clearPoints() {
     this.points = [];
-    this.pointAngles.clear();
+    this.pointTypes = [];
     this.selectedPointIndex = -1;
     this.updateDisplay();
   }
 
   loadPreset(name) {
-    const canvasHeight = this.canvas.getBoundingClientRect().height;
-
     const presets = {
-      "s-curve": [
-        { x: 100, y: 200 }, // Convert to Cartesian
-        { x: 200, y: 300 },
-        { x: 300, y: 100 },
-        { x: 400, y: 200 },
-      ],
-      triangle: [
-        { x: 100, y: 100 }, // Bottom-left origin
-        { x: 300, y: 300 },
-        { x: 500, y: 100 },
-      ],
-      square: [
-        { x: 200, y: 200 },
-        { x: 400, y: 200 },
-        { x: 400, y: 400 },
-        { x: 200, y: 400 },
-      ],
+      "s-curve": {
+        points: [
+          { x: 100, y: 200 },
+          { x: 200, y: 300 },
+          { x: 300, y: 100 },
+          { x: 400, y: 200 },
+        ],
+        types: [0, 0, 0, 0], // All smooth
+      },
+      triangle: {
+        points: [
+          { x: 100, y: 100 },
+          { x: 300, y: 300 },
+          { x: 500, y: 100 },
+        ],
+        types: [1, 1, 1], // All corners
+      },
+      square: {
+        points: [
+          { x: 200, y: 200 },
+          { x: 400, y: 200 },
+          { x: 400, y: 400 },
+          { x: 200, y: 400 },
+        ],
+        types: [1, 1, 1, 1], // All corners
+      },
     };
 
     if (presets[name]) {
-      this.points = [...presets[name]];
-      this.pointAngles.clear();
+      this.points = [...presets[name].points];
+      this.pointTypes = [...presets[name].types];
       this.selectedPointIndex = -1;
       this.updateDisplay();
     }
@@ -354,8 +386,12 @@ class CurveFitterDemo {
     }
 
     try {
-      // Convert points to WebPoint objects (no coordinate conversion needed - hobby expects Cartesian)
-      const webPoints = this.points.map((p) => new WebPoint(p.x, p.y));
+      // Convert points to WebPoint objects with their types
+      const webPoints = this.points.map((p, i) => {
+        const pointType =
+          this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
+        return WebPoint.new_with_type(p.x, p.y, pointType);
+      });
 
       // Create options
       const options = new CurveFitterOptions();
@@ -484,18 +520,28 @@ class CurveFitterDemo {
 
     for (let i = 0; i < this.points.length; i++) {
       const point = this.points[i];
+      const pointType = this.pointTypes[i];
       const isSelected = i === this.selectedPointIndex;
+      const isCorner = pointType === 1; // 1 = Corner
 
       // Convert to screen coordinates for drawing
       const screenPos = this.cartesianToScreen(point.x, point.y);
 
-      // Point circle
+      // Point shape (circle for smooth, rectangle for corner)
       ctx.fillStyle = isSelected ? "#f38ba8" : "#11111b";
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2;
 
       ctx.beginPath();
-      ctx.arc(screenPos.x, screenPos.y, isSelected ? 8 : 6, 0, Math.PI * 2);
+      if (isCorner) {
+        // Draw rectangle for corner points
+        const size = isSelected ? 8 : 6;
+        ctx.rect(screenPos.x - size, screenPos.y - size, size * 2, size * 2);
+      } else {
+        // Draw circle for smooth points
+        const radius = isSelected ? 8 : 6;
+        ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
+      }
       ctx.fill();
       ctx.stroke();
 
@@ -510,8 +556,10 @@ class CurveFitterDemo {
   showPointInfo(screenX, screenY, pointIndex) {
     const pointInfo = document.getElementById("pointInfo");
     const point = this.points[pointIndex];
+    const pointType = this.pointTypes[pointIndex];
+    const typeText = pointType === 1 ? "Corner" : "Smooth";
 
-    pointInfo.innerHTML = `Point ${pointIndex}: (${Math.round(point.x)}, ${Math.round(point.y)})`;
+    pointInfo.innerHTML = `Point ${pointIndex}: (${Math.round(point.x)}, ${Math.round(point.y)}) - ${typeText}`;
     pointInfo.style.display = "block";
     pointInfo.style.left = screenX + 10 + "px";
     pointInfo.style.top = screenY - 30 + "px";
@@ -529,7 +577,11 @@ class CurveFitterDemo {
     }
 
     try {
-      const webPoints = this.points.map((p) => new WebPoint(p.x, p.y));
+      const webPoints = this.points.map((p, i) => {
+        const pointType =
+          this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
+        return WebPoint.new_with_type(p.x, p.y, pointType);
+      });
       const options = new CurveFitterOptions();
       options.set_cyclic(this.settings.cyclic);
       const pathData = curve_to_svg_path(webPoints, options);

@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use kurbo::{BezPath, Point};
 
-use crate::{CurvatureResult, TwoParamCurve, SegmentParams};
+use crate::{CurvatureResult, SegmentParams, TwoParamCurve};
 
 pub struct TwoParamSpline {
     ctrl_pts: Vec<Point>,
@@ -74,7 +74,7 @@ impl TwoParamSpline {
     }
 
     /// Get tangent angles and chord length for segment i
-    fn get_ths(&self, i: usize) -> SegmentParams {
+    pub fn get_ths(&self, i: usize) -> SegmentParams {
         let p0 = self.ctrl_pts[i];
         let p1 = self.ctrl_pts[i + 1];
         let dx = p1.x - p0.x;

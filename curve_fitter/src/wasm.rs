@@ -26,16 +26,33 @@ pub fn version() -> String {
 }
 
 #[wasm_bindgen]
+#[derive(Clone, Copy)]
+pub enum WebPointType {
+    Smooth = 0,
+    Corner = 1,
+}
+
+#[wasm_bindgen]
 pub struct WebPoint {
     x: f64,
     y: f64,
+    point_type: WebPointType,
 }
 
 #[wasm_bindgen]
 impl WebPoint {
     #[wasm_bindgen(constructor)]
     pub fn new(x: f64, y: f64) -> WebPoint {
-        WebPoint { x, y }
+        WebPoint { 
+            x, 
+            y,
+            point_type: WebPointType::Smooth,
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn new_with_type(x: f64, y: f64, point_type: WebPointType) -> WebPoint {
+        WebPoint { x, y, point_type }
     }
 
     #[wasm_bindgen(getter)]
@@ -48,6 +65,11 @@ impl WebPoint {
         self.y
     }
 
+    #[wasm_bindgen(getter)]
+    pub fn point_type(&self) -> WebPointType {
+        self.point_type
+    }
+
     #[wasm_bindgen(setter)]
     pub fn set_x(&mut self, x: f64) {
         self.x = x;
@@ -56,6 +78,11 @@ impl WebPoint {
     #[wasm_bindgen(setter)]
     pub fn set_y(&mut self, y: f64) {
         self.y = y;
+    }
+
+    #[wasm_bindgen(setter)]
+    pub fn set_point_type(&mut self, point_type: WebPointType) {
+        self.point_type = point_type;
     }
 }
 
@@ -132,6 +159,13 @@ impl CurveSegment {
     }
 }
 
+fn convert_web_point_type(web_type: WebPointType) -> PointType {
+    match web_type {
+        WebPointType::Smooth => PointType::Smooth,
+        WebPointType::Corner => PointType::Corner,
+    }
+}
+
 #[wasm_bindgen]
 pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<CurveSegment> {
     console_error_panic_hook::set_once();
@@ -140,13 +174,13 @@ pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<Cur
         return Vec::new();
     }
 
-    // Convert WebPoints to InputPoints
+    // Convert WebPoints to InputPoints with their proper types
     let input_points: Vec<InputPoint> = points
         .iter()
         .map(|p| InputPoint {
             x: p.x,
             y: p.y,
-            point_type: PointType::Smooth, // For now, treat all points as smooth
+            point_type: convert_web_point_type(p.point_type),
         })
         .collect();
 
@@ -229,13 +263,13 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
         return String::new();
     }
 
-    // Convert WebPoints to InputPoints
+    // Convert WebPoints to InputPoints with their proper types
     let input_points: Vec<InputPoint> = points
         .iter()
         .map(|p| InputPoint {
             x: p.x,
             y: p.y,
-            point_type: PointType::Smooth,
+            point_type: convert_web_point_type(p.point_type),
         })
         .collect();
 

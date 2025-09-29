@@ -1,6 +1,6 @@
 use kurbo::{BezPath, Point};
 
-use crate::{ControlPoint, InputPoint, TwoParamCurve, two_param_spline::TwoParamSpline};
+use crate::{ControlPoint, InputPoint, PointType, TwoParamCurve, two_param_spline::TwoParamSpline};
 
 pub struct Spline {
     ctrl_pts: Vec<ControlPoint>,
@@ -25,24 +25,75 @@ impl Spline {
             return Err("Need at least 2 points".to_string());
         }
 
-        // For now, treat all as one smooth segment
-        let points: Vec<Point> = self.ctrl_pts.iter().map(|cp| cp.pt).collect();
-        let mut spline = TwoParamSpline::new(points);
-        spline.initial_ths();
+        let start = self.start_ix();
+        let length = self.ctrl_pts.len() - if self.is_closed { 0 } else { 1 };
+        let mut i = 0;
 
-        // Solve with iterations
-        for i in 0..10 {
-            let err = spline.iter_solver(i, curve);
-            if err < 1e-6 {
-                break;
-            }
-        }
+        while i < length {
+            let pt_i = self.pt(i, start);
+            let pt_i1 = self.pt(i + 1, start);
 
-        // Store results back (simplified for now)
-        for (i, cp) in self.ctrl_pts.iter_mut().enumerate() {
-            if i < spline.ths.len() {
-                cp.l_th = Some(spline.ths[i]);
-                cp.r_th = Some(spline.ths[i]);
+            // Check if this is a simple line segment (corner to corner with no explicit tangents)
+            if (i + 1 == length || matches!(pt_i1.ty, PointType::Corner))
+                && pt_i.rth.is_none()
+                && pt_i1.lth.is_none()
+            {
+                // Simple line segment - set tangents to chord direction
+                let dx = pt_i1.pt.x - pt_i.pt.x;
+                let dy = pt_i1.pt.y - pt_i.pt.y;
+                let th = dy.atan2(dx);
+
+                // Modify the actual control points
+                let actual_i = (i + start) % self.ctrl_pts.len();
+                let actual_i1 = (i + 1 + start) % self.ctrl_pts.len();
+                self.ctrl_pts[actual_i].r_th = Some(th);
+                self.ctrl_pts[actual_i1].l_th = Some(th);
+
+                i += 1;
+            } else {
+                // We have a curve segment - collect all points until next corner
+                let mut inner_pts = vec![pt_i.pt];
+                let mut j = i + 1;
+
+                while j < length + 1 {
+                    let pt_j = self.pt(j, start);
+                    inner_pts.push(pt_j.pt);
+                    j += 1;
+                    if matches!(pt_j.ty, PointType::Corner) || pt_j.lth.is_some() {
+                        break;
+                    }
+                }
+
+                // Create and solve spline for this segment
+                let mut inner = TwoParamSpline::new(inner_pts);
+                inner.set_start_tangent(self.pt(i, start).rth);
+                inner.set_end_tangent(self.pt(j - 1, start).lth);
+
+                let n_iter = 10;
+                inner.initial_ths();
+                for k in 0..n_iter {
+                    let err = inner.iter_solver(k, curve);
+                    if err < 1e-6 {
+                        break;
+                    }
+                }
+
+                // Store results back to control points
+                for k in i..(j - 1) {
+                    let actual_k = (k + start) % self.ctrl_pts.len();
+                    let actual_k1 = (k + 1 + start) % self.ctrl_pts.len();
+
+                    self.ctrl_pts[actual_k].r_th = Some(inner.ths[k - i]);
+                    self.ctrl_pts[actual_k1].l_th = Some(inner.ths[k + 1 - i]);
+
+                    // Also record curvatures for potential blending
+                    let ths = inner.get_ths(k - i);
+                    let ask = curve.compute_curvature(ths.th0, ths.th1);
+                    self.ctrl_pts[actual_k].r_ak = Some(ask.ak0);
+                    self.ctrl_pts[actual_k1].l_ak = Some(ask.ak1);
+                }
+
+                i = j - 1;
             }
         }
 
@@ -50,18 +101,84 @@ impl Spline {
     }
 
     pub fn render(&self, curve: &TwoParamCurve) -> BezPath {
-        let points: Vec<Point> = self.ctrl_pts.iter().map(|cp| cp.pt).collect();
-        let mut spline = TwoParamSpline::new(points);
+        let mut path = BezPath::new();
+        if self.ctrl_pts.is_empty() {
+            return path;
+        }
 
-        // Use stored tangents if available
-        for (i, cp) in self.ctrl_pts.iter().enumerate() {
-            if i < spline.ths.len() {
-                if let Some(th) = cp.l_th {
-                    spline.ths[i] = th;
-                }
+        path.move_to(self.ctrl_pts[0].pt);
+
+        let length = self.ctrl_pts.len() - if self.is_closed { 0 } else { 1 };
+
+        for i in 0..length {
+            let pt_i = self.pt(i, 0);
+            let pt_i1 = self.pt(i + 1, 0);
+
+            let dx = pt_i1.pt.x - pt_i.pt.x;
+            let dy = pt_i1.pt.y - pt_i.pt.y;
+            let chth = dy.atan2(dx);
+            let chord = (dx * dx + dy * dy).sqrt();
+
+            // Get tangent angles relative to chord
+            let th0 = mod2pi(pt_i.r_th.unwrap_or(chth) - chth);
+            let th1 = mod2pi(chth - pt_i1.l_th.unwrap_or(chth));
+
+            // Apply curvature blending if available
+            let k0 = pt_i.k_blend.map(|k| k * chord);
+            let k1 = pt_i1.k_blend.map(|k| k * chord);
+
+            // For now, just use basic 2-parameter curve (no curvature blending yet)
+            let render = curve.render(th0, th1);
+
+            let mut control_points = Vec::new();
+            for pt in render {
+                let x = pt_i.pt.x + dx * pt.x - dy * pt.y;
+                let y = pt_i.pt.y + dy * pt.x + dx * pt.y;
+                control_points.push(Point::new(x, y));
+            }
+
+            if control_points.len() >= 2 {
+                path.curve_to(control_points[0], control_points[1], pt_i1.pt);
+            } else {
+                path.line_to(pt_i1.pt);
             }
         }
 
-        spline.render_svg(curve)
+        if self.is_closed {
+            path.close_path();
+        }
+
+        path
     }
+
+    /// Find starting index (mimics JS startIx method)
+    fn start_ix(&self) -> usize {
+        if !self.is_closed {
+            return 0;
+        }
+
+        for i in 0..self.ctrl_pts.len() {
+            let pt = &self.ctrl_pts[i];
+            if matches!(pt.ty, PointType::Corner) || pt.lth.is_some() {
+                return i;
+            }
+        }
+
+        // Path is all-smooth and closed
+        0
+    }
+
+    /// Get point with wraparound (mimics JS pt method)
+    fn pt(&self, i: usize, start: usize) -> &ControlPoint {
+        let length = self.ctrl_pts.len();
+        let index = (i + start) % length;
+        &self.ctrl_pts[index]
+    }
+}
+
+/// Normalize angle to -π..π range
+fn mod2pi(th: f64) -> f64 {
+    let two_pi = 2.0 * std::f64::consts::PI;
+    let frac = th / two_pi;
+    two_pi * (frac - frac.round())
 }
