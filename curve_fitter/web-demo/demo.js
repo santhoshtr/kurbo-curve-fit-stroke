@@ -32,19 +32,21 @@ class CurveFitterDemo {
 
   // Convert screen coordinates to Cartesian coordinates
   screenToCartesian(screenX, screenY) {
-    const canvasHeight = this.canvas.getBoundingClientRect().height;
+    // const canvasHeight = this.canvas.getBoundingClientRect().height;
     return {
       x: screenX,
-      y: canvasHeight - screenY, // Flip Y coordinate
+      // y: canvasHeight - screenY, // Flip Y coordinate
+      y: screenY, // Flip Y coordinate
     };
   }
 
   // Convert Cartesian coordinates to screen coordinates
   cartesianToScreen(cartX, cartY) {
-    const canvasHeight = this.canvas.getBoundingClientRect().height;
+    // const canvasHeight = this.canvas.getBoundingClientRect().height;
     return {
       x: cartX,
-      y: canvasHeight - cartY, // Flip Y coordinate
+      // y: canvasHeight - cartY, // Flip Y coordinate
+      y: cartY, // Flip Y coordinate
     };
   }
 
