@@ -27,6 +27,53 @@ impl Spline {
 
         let start = self.start_ix();
         let length = self.ctrl_pts.len() - if self.is_closed { 0 } else { 1 };
+
+        // Handle LineToCurve and CurveToLine point types by converting them to corners
+        // with fixed theta from line direction
+        // Thanks to https://github.com/terryspitz
+        for i in 0..length {
+            let actual_i = (i + start) % self.ctrl_pts.len();
+            let pt_i = &self.ctrl_pts[actual_i];
+
+            // Check if point needs line-based tangent calculation
+            let needs_line_tangent =
+                matches!(pt_i.ty, PointType::LineToCurve | PointType::CurveToLine);
+
+            if needs_line_tangent && pt_i.lth.is_none() && pt_i.rth.is_none() {
+                // Determine which adjacent point to use for line direction
+                let adjacent_i = if matches!(pt_i.ty, PointType::LineToCurve) {
+                    // LineToCurve: use previous point
+                    if i == 0 && !self.is_closed {
+                        continue; // No previous point available
+                    }
+                    let prev_i = if i == 0 {
+                        self.ctrl_pts.len() - 1
+                    } else {
+                        i - 1
+                    };
+                    (prev_i + start) % self.ctrl_pts.len()
+                } else {
+                    // CurveToLine: use next point
+                    if i + 1 >= length {
+                        continue; // No next point available
+                    }
+                    (i + 1 + start) % self.ctrl_pts.len()
+                };
+
+                let pt_adjacent = &self.ctrl_pts[adjacent_i];
+
+                // Calculate line direction
+                let dx = pt_i.pt.x - pt_adjacent.pt.x;
+                let dy = pt_i.pt.y - pt_adjacent.pt.y;
+                let th = dy.atan2(dx);
+
+                // Convert to corner with fixed tangent
+                self.ctrl_pts[actual_i].ty = PointType::Corner;
+                self.ctrl_pts[actual_i].lth = Some(th);
+                self.ctrl_pts[actual_i].rth = Some(th);
+            }
+        }
+
         let mut i = 0;
 
         while i < length {
@@ -65,7 +112,7 @@ impl Spline {
                 }
 
                 // Create and solve spline for this segment
-                let mut inner = TwoParamSpline::new(inner_pts);
+                let mut inner = TwoParamSpline::new(inner_pts, self.is_closed);
                 inner.set_start_tangent(self.pt(i, start).rth);
                 inner.set_end_tangent(self.pt(j - 1, start).lth);
 

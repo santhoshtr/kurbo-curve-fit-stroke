@@ -9,16 +9,18 @@ pub struct TwoParamSpline {
     pub(crate) ths: Vec<f64>, // tangent angles at each point
     start_th: Option<f64>,
     end_th: Option<f64>,
+    is_closed: bool,
 }
 
 impl TwoParamSpline {
-    pub fn new(ctrl_pts: Vec<Point>) -> Self {
+    pub fn new(ctrl_pts: Vec<Point>, is_closed: bool) -> Self {
         let n = ctrl_pts.len();
         Self {
             ctrl_pts,
             ths: vec![0.0; n],
             start_th: None,
             end_th: None,
+            is_closed,
         }
     }
 
@@ -103,6 +105,13 @@ impl TwoParamSpline {
         if self.end_th.is_none() {
             let ths0 = self.get_ths(n - 2);
             self.ths[n - 1] -= curve.endpoint_tangent(ths0.th0) - ths0.th1;
+        }
+
+        // Correction to match start/end tangents on closed curves
+        if self.is_closed && self.start_th.is_none() && self.end_th.is_none() {
+            let avgth = (self.ths[0] + self.ths[n - 1]) / 2.0;
+            self.ths[0] = avgth;
+            self.ths[n - 1] = avgth;
         }
 
         let mut abs_err = 0.0;

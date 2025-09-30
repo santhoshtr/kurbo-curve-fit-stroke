@@ -20,6 +20,8 @@ pub struct InputPoint {
 pub enum PointType {
     Corner,
     Smooth,
+    LineToCurve,
+    CurveToLine,
 }
 
 #[derive(Debug, Clone)]
