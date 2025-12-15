@@ -2,7 +2,6 @@
 import init, {
   fit_curve,
   fit_curve_with_stroke,
-  curve_to_svg_path,
   curve_to_svg_path_with_stroke,
   WebPoint,
   WebPointType,
@@ -10,6 +9,9 @@ import init, {
   StrokeOptions,
   version,
 } from "./pkg/chi_web_demo.js";
+
+// Import Tweakpane
+import { Pane } from "https://cdn.jsdelivr.net/npm/tweakpane@4.0.3/dist/tweakpane.min.js";
 
 class CurveFitterDemo {
   constructor() {
@@ -20,18 +22,15 @@ class CurveFitterDemo {
     this.dragging = false;
     this.dragOffset = { x: 0, y: 0 };
 
-    // Settings
-    this.settings = {
+    // Settings object for Tweakpane
+    this.params = {
       cyclic: false,
       showControlPoints: true,
-    };
-
-    // Stroke settings
-    this.strokeSettings = {
-      enabled: false,
-      width: 10,
-      cap: "round",
-      join: "round",
+      strokeEnabled: false,
+      strokeWidth: 10,
+      strokeCap: "round",
+      strokeJoin: "round",
+      nib: "circle",
     };
 
     // Point types (0 = Smooth, 1 = Corner)
@@ -39,25 +38,22 @@ class CurveFitterDemo {
 
     // Canvas state
     this.canvasRect = null;
+
+    // Tweakpane instance
+    this.pane = null;
   }
 
-  // Convert screen coordinates to Cartesian coordinates
   screenToCartesian(screenX, screenY) {
-    // const canvasHeight = this.canvas.getBoundingClientRect().height;
     return {
       x: screenX,
-      // y: canvasHeight - screenY, // Flip Y coordinate
-      y: screenY, // Flip Y coordinate
+      y: screenY,
     };
   }
 
-  // Convert Cartesian coordinates to screen coordinates
   cartesianToScreen(cartX, cartY) {
-    // const canvasHeight = this.canvas.getBoundingClientRect().height;
     return {
       x: cartX,
-      // y: canvasHeight - cartY, // Flip Y coordinate
-      y: cartY, // Flip Y coordinate
+      y: cartY,
     };
   }
 
@@ -68,15 +64,13 @@ class CurveFitterDemo {
       console.log(`Curve Fitter WASM module loaded, version: ${version()}`);
 
       this.setupCanvas();
-      this.setupControls();
+      this.setupTweakpane();
       this.setupEventListeners();
       this.loadPreset("s-curve");
       this.updateDisplay();
     } catch (error) {
       console.error("Failed to initialize WASM module:", error);
-      this.showError(
-        "Failed to load the curve engine. Please refresh the page.",
-      );
+      alert("Failed to load the curve engine. Please refresh the page.");
     }
   }
 
@@ -95,72 +89,118 @@ class CurveFitterDemo {
 
     this.ctx.scale(devicePixelRatio, devicePixelRatio);
 
-    // Update canvas rect for coordinate conversion
     this.updateCanvasRect();
   }
 
-  setupControls() {
-    // Checkboxes
-    document
-      .getElementById("cyclicCheckbox")
-      .addEventListener("change", (e) => {
-        this.settings.cyclic = e.target.checked;
-        this.updateDisplay();
-      });
-
-    document
-      .getElementById("showControlPoints")
-      .addEventListener("change", (e) => {
-        this.settings.showControlPoints = e.target.checked;
-        this.updateDisplay();
-      });
-
-    // Stroke controls
-    document.getElementById("enableStroke").addEventListener("change", (e) => {
-      this.strokeSettings.enabled = e.target.checked;
-      this.updateDisplay();
+  setupTweakpane() {
+    this.pane = new Pane({
+      title: "Curve Fitter",
+      container: document.getElementById("controls"),
     });
 
-    document.getElementById("strokeWidth").addEventListener("input", (e) => {
-      this.strokeSettings.width = parseFloat(e.target.value);
-      document.getElementById("strokeWidthValue").textContent = e.target.value;
-      this.updateDisplay();
+    // Curve options folder
+    const curveFolder = this.pane.addFolder({
+      title: "Curve Options",
+      expanded: true,
     });
 
-    document.getElementById("strokeCap").addEventListener("change", (e) => {
-      this.strokeSettings.cap = e.target.value;
-      this.updateDisplay();
+    curveFolder
+      .addBinding(this.params, "cyclic", {
+        label: "Closed curve",
+      })
+      .on("change", () => this.updateDisplay());
+
+    curveFolder
+      .addBinding(this.params, "showControlPoints", {
+        label: "Show controls",
+      })
+      .on("change", () => this.updateDisplay());
+
+    // Stroke options folder
+    const strokeFolder = this.pane.addFolder({
+      title: "Stroke Options",
+      expanded: true,
     });
 
-    document.getElementById("strokeJoin").addEventListener("change", (e) => {
-      this.strokeSettings.join = e.target.value;
-      this.updateDisplay();
+    strokeFolder
+      .addBinding(this.params, "strokeEnabled", {
+        label: "Enable stroke",
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder
+      .addBinding(this.params, "strokeWidth", {
+        label: "Width",
+        min: 1,
+        max: 50,
+        step: 0.5,
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder
+      .addBinding(this.params, "strokeCap", {
+        label: "Cap",
+        options: {
+          Round: "round",
+          Butt: "butt",
+          Square: "square",
+        },
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder
+      .addBinding(this.params, "strokeJoin", {
+        label: "Join",
+        options: {
+          Round: "round",
+          Bevel: "bevel",
+          Miter: "miter",
+        },
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder.addBinding(this.params, "nib", {
+      label: "Nib",
+      options: {
+        Circle: "circle",
+        Ellipse: "ellipse",
+      },
+    });
+    //.on("change", () => this.updateDisplay());
+    // Presets folder
+    const presetsFolder = this.pane.addFolder({
+      title: "Presets",
+      expanded: false,
     });
 
-    // Buttons
-    document.getElementById("clearPoints").addEventListener("click", () => {
-      this.clearPoints();
-    });
-
-    document.getElementById("downloadSvg").addEventListener("click", () => {
-      this.downloadSvg();
-    });
-
-    document.getElementById("copySvg").addEventListener("click", () => {
-      this.copySvgToClipboard();
-    });
-
-    // Preset buttons
-    document.getElementById("loadPreset1").addEventListener("click", () => {
+    presetsFolder.addButton({ title: "S-Curve" }).on("click", () => {
       this.loadPreset("s-curve");
     });
 
-    document.getElementById("loadPreset2").addEventListener("click", () => {
+    presetsFolder.addButton({ title: "Triangle" }).on("click", () => {
       this.loadPreset("triangle");
     });
 
-    document.getElementById("loadPreset3").addEventListener("click", () => {
+    presetsFolder.addButton({ title: "Square" }).on("click", () => {
       this.loadPreset("square");
+    });
+
+    presetsFolder.addButton({ title: "Clear All" }).on("click", () => {
+      this.clearPoints();
+    });
+
+    // Export folder
+    const exportFolder = this.pane.addFolder({
+      title: "Export",
+      expanded: false,
+    });
+
+    exportFolder.addButton({ title: "Copy SVG" }).on("click", () => {
+      this.copySvgToClipboard();
+    });
+
+    exportFolder.addButton({ title: "Download SVG" }).on("click", () => {
+      this.downloadSvg();
     });
   }
 
@@ -215,7 +255,6 @@ class CurveFitterDemo {
     const pointIndex = this.findPointAt(pos.x, pos.y);
 
     if (pointIndex !== -1) {
-      // Select and start dragging existing point
       this.selectedPointIndex = pointIndex;
       this.dragging = true;
       this.dragOffset = {
@@ -224,7 +263,6 @@ class CurveFitterDemo {
       };
       this.canvas.style.cursor = "grabbing";
     } else {
-      // Deselect when clicking empty space
       this.selectedPointIndex = -1;
     }
 
@@ -242,13 +280,12 @@ class CurveFitterDemo {
   }
 
   onKeyDown(e) {
-    // Handle Delete/Backspace keys
     if (
       (e.key === "Delete" || e.key === "Backspace") &&
       this.selectedPointIndex !== -1
     ) {
       this.removePoint(this.selectedPointIndex);
-      e.preventDefault(); // Prevent browser default behavior
+      e.preventDefault();
       return;
     }
   }
@@ -257,7 +294,6 @@ class CurveFitterDemo {
     const pos = this.getMousePos(e);
 
     if (this.dragging && this.selectedPointIndex !== -1) {
-      // Move the selected point
       this.points[this.selectedPointIndex] = {
         x: pos.x - this.dragOffset.x,
         y: pos.y - this.dragOffset.y,
@@ -269,11 +305,9 @@ class CurveFitterDemo {
         this.selectedPointIndex,
       );
     } else {
-      // Update cursor based on hover
       const pointIndex = this.findPointAt(pos.x, pos.y);
       this.canvas.style.cursor = pointIndex !== -1 ? "grab" : "crosshair";
 
-      // Show point info on hover
       if (pointIndex !== -1) {
         this.showPointInfo(
           e.clientX - this.canvasRect.left,
@@ -298,16 +332,13 @@ class CurveFitterDemo {
     const pointIndex = this.findPointAt(pos.x, pos.y);
 
     if (pointIndex === -1) {
-      // Right-click on empty space adds a new point
       this.addPointAtPosition(pos.x, pos.y);
     }
   }
 
-  // Touch event handlers
   onTouchStart(e) {
     e.preventDefault();
     const pos = this.getTouchPos(e);
-    // Convert back to screen coordinates for the event simulation
     const screenPos = this.cartesianToScreen(pos.x, pos.y);
     this.onMouseDown({
       clientX: screenPos.x + this.canvasRect.left,
@@ -318,7 +349,6 @@ class CurveFitterDemo {
   onTouchMove(e) {
     e.preventDefault();
     const pos = this.getTouchPos(e);
-    // Convert back to screen coordinates for the event simulation
     const screenPos = this.cartesianToScreen(pos.x, pos.y);
     this.onMouseMove({
       clientX: screenPos.x + this.canvasRect.left,
@@ -345,8 +375,8 @@ class CurveFitterDemo {
 
   addPointAtPosition(x, y) {
     this.points.push({ x, y });
-    this.pointTypes.push(0); // Default to Smooth
-    this.selectedPointIndex = this.points.length - 1; // Select the new point
+    this.pointTypes.push(0);
+    this.selectedPointIndex = this.points.length - 1;
     this.updateDisplay();
   }
 
@@ -365,7 +395,6 @@ class CurveFitterDemo {
 
   togglePointType(index) {
     if (index >= 0 && index < this.pointTypes.length) {
-      // Toggle between Smooth (0) and Corner (1)
       this.pointTypes[index] = this.pointTypes[index] === 0 ? 1 : 0;
     }
   }
@@ -386,7 +415,7 @@ class CurveFitterDemo {
           { x: 300, y: 100 },
           { x: 400, y: 200 },
         ],
-        types: [0, 0, 0, 0], // All smooth
+        types: [0, 0, 0, 0],
       },
       triangle: {
         points: [
@@ -394,7 +423,7 @@ class CurveFitterDemo {
           { x: 300, y: 300 },
           { x: 500, y: 100 },
         ],
-        types: [1, 1, 1], // All corners
+        types: [1, 1, 1],
       },
       square: {
         points: [
@@ -403,7 +432,7 @@ class CurveFitterDemo {
           { x: 400, y: 400 },
           { x: 200, y: 400 },
         ],
-        types: [1, 1, 1, 1], // All corners
+        types: [1, 1, 1, 1],
       },
     };
 
@@ -421,30 +450,26 @@ class CurveFitterDemo {
     }
 
     try {
-      // Convert points to WebPoint objects with their types
       const webPoints = this.points.map((p, i) => {
         const pointType =
           this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
         return WebPoint.new_with_type(p.x, p.y, pointType);
       });
 
-      // Create options
       const options = new CurveFitterOptions();
-      options.set_cyclic(this.settings.cyclic);
+      options.set_cyclic(this.params.cyclic);
 
-      // If stroke is enabled, generate stroked curve
-      if (this.strokeSettings.enabled) {
+      if (this.params.strokeEnabled) {
         const strokeOptions = new StrokeOptions();
-        strokeOptions.set_width(this.strokeSettings.width);
+        strokeOptions.set_width(this.params.strokeWidth);
 
-        if (this.strokeSettings.cap === "butt") strokeOptions.set_cap_butt();
-        else if (this.strokeSettings.cap === "square")
+        if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
+        else if (this.params.strokeCap === "square")
           strokeOptions.set_cap_square();
         else strokeOptions.set_cap_round();
 
-        if (this.strokeSettings.join === "bevel")
-          strokeOptions.set_join_bevel();
-        else if (this.strokeSettings.join === "miter")
+        if (this.params.strokeJoin === "bevel") strokeOptions.set_join_bevel();
+        else if (this.params.strokeJoin === "miter")
           strokeOptions.set_join_miter();
         else strokeOptions.set_join_round();
 
@@ -465,13 +490,12 @@ class CurveFitterDemo {
       const segments = this.generateCurve();
       this.drawCurve(segments);
 
-      if (this.settings.showControlPoints && !this.strokeSettings.enabled) {
+      if (this.params.showControlPoints && !this.params.strokeEnabled) {
         this.drawControlPoints(segments);
       }
     }
 
     this.drawPoints();
-    this.updateSvgOutput();
   }
 
   clearCanvas() {
@@ -483,8 +507,7 @@ class CurveFitterDemo {
 
     const ctx = this.ctx;
 
-    // Use fill for stroked curves, stroke for normal curves
-    if (this.strokeSettings.enabled) {
+    if (this.params.strokeEnabled) {
       ctx.fillStyle = "orangered";
     } else {
       ctx.strokeStyle = "orangered";
@@ -495,14 +518,12 @@ class CurveFitterDemo {
 
     ctx.beginPath();
 
-    // Convert first point to screen coordinates
     const startScreen = this.cartesianToScreen(
       segments[0].start_x,
       segments[0].start_y,
     );
     ctx.moveTo(startScreen.x, startScreen.y);
 
-    // Draw all curve segments with coordinate conversion
     for (const segment of segments) {
       const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
       const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
@@ -518,7 +539,7 @@ class CurveFitterDemo {
       );
     }
 
-    if (this.strokeSettings.enabled) {
+    if (this.params.strokeEnabled) {
       ctx.fill();
     } else {
       ctx.stroke();
@@ -528,13 +549,11 @@ class CurveFitterDemo {
   drawControlPoints(segments) {
     const ctx = this.ctx;
 
-    // Draw control point lines
     ctx.strokeStyle = "#cba6f7";
     ctx.lineWidth = 1;
     ctx.setLineDash([5, 5]);
 
     for (const segment of segments) {
-      // Convert all points to screen coordinates
       const startScreen = this.cartesianToScreen(
         segment.start_x,
         segment.start_y,
@@ -543,13 +562,11 @@ class CurveFitterDemo {
       const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
       const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
 
-      // Line from start to first control point
       ctx.beginPath();
       ctx.moveTo(startScreen.x, startScreen.y);
       ctx.lineTo(cp1Screen.x, cp1Screen.y);
       ctx.stroke();
 
-      // Line from second control point to end
       ctx.beginPath();
       ctx.moveTo(cp2Screen.x, cp2Screen.y);
       ctx.lineTo(endScreen.x, endScreen.y);
@@ -558,19 +575,16 @@ class CurveFitterDemo {
 
     ctx.setLineDash([]);
 
-    // Draw control points
     ctx.fillStyle = "#cba6f7";
 
     for (const segment of segments) {
       const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
       const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
 
-      // First control point
       ctx.beginPath();
       ctx.arc(cp1Screen.x, cp1Screen.y, 4, 0, Math.PI * 2);
       ctx.fill();
 
-      // Second control point
       ctx.beginPath();
       ctx.arc(cp2Screen.x, cp2Screen.y, 4, 0, Math.PI * 2);
       ctx.fill();
@@ -584,30 +598,25 @@ class CurveFitterDemo {
       const point = this.points[i];
       const pointType = this.pointTypes[i];
       const isSelected = i === this.selectedPointIndex;
-      const isCorner = pointType === 1; // 1 = Corner
+      const isCorner = pointType === 1;
 
-      // Convert to screen coordinates for drawing
       const screenPos = this.cartesianToScreen(point.x, point.y);
 
-      // Point shape (circle for smooth, rectangle for corner)
       ctx.fillStyle = isSelected ? "#f38ba8" : "#11111b";
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 2;
 
       ctx.beginPath();
       if (isCorner) {
-        // Draw rectangle for corner points
         const size = isSelected ? 8 : 6;
         ctx.rect(screenPos.x - size, screenPos.y - size, size * 2, size * 2);
       } else {
-        // Draw circle for smooth points
         const radius = isSelected ? 8 : 6;
         ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
       }
       ctx.fill();
       ctx.stroke();
 
-      // Point label
       ctx.fillStyle = "Highlight";
       ctx.font = "12px monospace";
       ctx.textAlign = "center";
@@ -632,64 +641,11 @@ class CurveFitterDemo {
     pointInfo.style.display = "none";
   }
 
-  updateSvgOutput() {
-    if (this.points.length < 2) {
-      document.getElementById("svgOutput").value = "";
-      return;
-    }
+  async downloadSvg() {
+    const svg = this.generateSvg();
+    if (!svg) return;
 
-    try {
-      const webPoints = this.points.map((p, i) => {
-        const pointType =
-          this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
-        return WebPoint.new_with_type(p.x, p.y, pointType);
-      });
-
-      const curveOptions = new CurveFitterOptions();
-      curveOptions.set_cyclic(this.settings.cyclic);
-
-      const strokeOptions = new StrokeOptions();
-      strokeOptions.set_width(this.strokeSettings.width);
-
-      // Set cap style
-      if (this.strokeSettings.cap === "butt") strokeOptions.set_cap_butt();
-      else if (this.strokeSettings.cap === "square")
-        strokeOptions.set_cap_square();
-      else strokeOptions.set_cap_round();
-
-      // Set join style
-      if (this.strokeSettings.join === "bevel") strokeOptions.set_join_bevel();
-      else if (this.strokeSettings.join === "miter")
-        strokeOptions.set_join_miter();
-      else strokeOptions.set_join_round();
-
-      const pathData = curve_to_svg_path_with_stroke(
-        webPoints,
-        curveOptions,
-        strokeOptions,
-        this.strokeSettings.enabled,
-      );
-
-      const canvasHeight = this.canvas.getBoundingClientRect().height;
-      const fillStyle = this.strokeSettings.enabled
-        ? 'fill="#667eea"'
-        : 'fill="none" stroke="#667eea" stroke-width="3"';
-
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${canvasHeight}">
-  <path d="${pathData}" ${fillStyle} stroke-linecap="round"/>
-</svg>`;
-
-      document.getElementById("svgOutput").value = svg;
-    } catch (error) {
-      console.error("Error generating SVG:", error);
-    }
-  }
-
-  downloadSvg() {
-    const svgContent = document.getElementById("svgOutput").value;
-    if (!svgContent) return;
-
-    const blob = new Blob([svgContent], { type: "image/svg+xml" });
+    const blob = new Blob([svg], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
 
     const a = document.createElement("a");
@@ -703,45 +659,70 @@ class CurveFitterDemo {
   }
 
   async copySvgToClipboard() {
-    const svgContent = document.getElementById("svgOutput").value;
-    if (!svgContent) return;
+    const svg = this.generateSvg();
+    if (!svg) return;
 
     try {
-      await navigator.clipboard.writeText(svgContent);
-
-      // Visual feedback
-      const btn = document.getElementById("copySvg");
-      const originalText = btn.textContent;
-      btn.textContent = "Copied!";
-      btn.style.background = "#28a745";
-
-      setTimeout(() => {
-        btn.textContent = originalText;
-        btn.style.background = "";
-      }, 2000);
+      await navigator.clipboard.writeText(svg);
+      console.log("SVG copied to clipboard!");
     } catch (error) {
       console.error("Failed to copy to clipboard:", error);
     }
   }
 
-  showError(message) {
-    const container = document.querySelector(".container");
-    const errorDiv = document.createElement("div");
-    errorDiv.style.cssText = `
-            color: ActiveText;
-            padding: 15px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            text-align: center;
-        `;
-    errorDiv.textContent = message;
-    container.insertBefore(errorDiv, container.firstChild);
+  generateSvg() {
+    if (this.points.length < 2) {
+      return null;
+    }
+
+    try {
+      const webPoints = this.points.map((p, i) => {
+        const pointType =
+          this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
+        return WebPoint.new_with_type(p.x, p.y, pointType);
+      });
+
+      const curveOptions = new CurveFitterOptions();
+      curveOptions.set_cyclic(this.params.cyclic);
+
+      const strokeOptions = new StrokeOptions();
+      strokeOptions.set_width(this.params.strokeWidth);
+
+      if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
+      else if (this.params.strokeCap === "square")
+        strokeOptions.set_cap_square();
+      else strokeOptions.set_cap_round();
+
+      if (this.params.strokeJoin === "bevel") strokeOptions.set_join_bevel();
+      else if (this.params.strokeJoin === "miter")
+        strokeOptions.set_join_miter();
+      else strokeOptions.set_join_round();
+
+      const pathData = curve_to_svg_path_with_stroke(
+        webPoints,
+        curveOptions,
+        strokeOptions,
+        this.params.strokeEnabled,
+      );
+
+      const canvasHeight = this.canvas.getBoundingClientRect().height;
+      const fillStyle = this.params.strokeEnabled
+        ? 'fill="#667eea"'
+        : 'fill="none" stroke="#667eea" stroke-width="3"';
+
+      return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${canvasHeight}">
+  <path d="${pathData}" ${fillStyle} stroke-linecap="round"/>
+</svg>`;
+    } catch (error) {
+      console.error("Error generating SVG:", error);
+      return null;
+    }
   }
 }
 
 // Initialize the demo
 const demo = new CurveFitterDemo();
-window.demo = demo; // Make it global for button onclick handlers
+window.demo = demo;
 
 document.addEventListener("DOMContentLoaded", () => {
   demo.init();
