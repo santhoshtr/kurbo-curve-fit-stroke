@@ -1,6 +1,8 @@
 use kurbo::{BezPath, Point};
 
-use crate::{ControlPoint, InputPoint, PointType, TwoParamCurve, two_param_spline::TwoParamSpline};
+use crate::{
+    ControlPoint, InputPoint, PointType, TwoParamCurve, mod2pi, two_param_spline::TwoParamSpline,
+};
 
 pub struct Spline {
     ctrl_pts: Vec<ControlPoint>,
@@ -174,9 +176,7 @@ impl Spline {
             let k0 = pt_i.k_blend.map(|k| k * chord);
             let k1 = pt_i1.k_blend.map(|k| k * chord);
 
-            // For now, just use basic 2-parameter curve (no curvature blending yet)
-            let render = curve.render(th0, th1);
-
+            let render = curve.render(th0, th1, k0, k1);
             let mut control_points = Vec::new();
             for pt in render {
                 let x = pt_i.pt.x + dx * pt.x - dy * pt.y;
@@ -221,11 +221,4 @@ impl Spline {
         let index = (i + start) % length;
         &self.ctrl_pts[index]
     }
-}
-
-/// Normalize angle to -π..π range
-fn mod2pi(th: f64) -> f64 {
-    let two_pi = 2.0 * std::f64::consts::PI;
-    let frac = th / two_pi;
-    two_pi * (frac - frac.round())
 }

@@ -1,8 +1,6 @@
-use std::f64::consts::PI;
-
 use kurbo::{BezPath, Point};
 
-use crate::{CurvatureResult, SegmentParams, TwoParamCurve};
+use crate::{CurvatureResult, SegmentParams, TwoParamCurve, mod2pi};
 
 pub struct TwoParamSpline {
     ctrl_pts: Vec<Point>,
@@ -175,7 +173,7 @@ impl TwoParamSpline {
 
         for i in 0..self.ctrl_pts.len() - 1 {
             let ths = self.get_ths(i);
-            let render = curve.render(ths.th0, ths.th1);
+            let render = curve.render(ths.th0, ths.th1, None, None);
 
             let p0 = self.ctrl_pts[i];
             let p1 = self.ctrl_pts[i + 1];
@@ -197,24 +195,5 @@ impl TwoParamSpline {
         }
 
         path
-    }
-}
-
-/// Normalize angle to -π..π range
-fn mod2pi(th: f64) -> f64 {
-    let two_pi = 2.0 * PI;
-    let frac = th / two_pi;
-    two_pi * (frac - frac.round())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_mod2pi() {
-        assert!((mod2pi(0.0) - 0.0).abs() < 1e-10);
-        assert!((mod2pi(PI) - PI).abs() < 1e-10);
-        assert!((mod2pi(-PI) - (-PI)).abs() < 1e-10);
     }
 }

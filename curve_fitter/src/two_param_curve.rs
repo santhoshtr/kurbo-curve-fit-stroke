@@ -54,13 +54,78 @@ impl TwoParamCurve {
         Self
     }
 
-    /// Generate control points for cubic bezier given tangent angles
-    pub fn render(&self, th0: f64, th1: f64) -> Vec<Point> {
+    /// Render cubic bezier with curvature constraints
+    /// Returns control points adjusted for desired curvatures k0 and k1 at endpoints
+    pub fn render(&self, th0: f64, th1: f64, k0: Option<f64>, k1: Option<f64>) -> Vec<Point> {
         let coords = self.my_cubic(th0, th1);
-        vec![
-            Point::new(coords[2], coords[3]), // first control point
-            Point::new(coords[4], coords[5]), // second control point
-        ]
+        let cb = CubicBez::new(
+            Point::new(coords[0], coords[1]),
+            Point::new(coords[2], coords[3]),
+            Point::new(coords[4], coords[5]),
+            Point::new(coords[6], coords[7]),
+        );
+
+        let mut result = Vec::new();
+
+        if k0.is_none() && k1.is_none() {
+            result.push(Point::new(coords[2], coords[3])); // first control point
+            result.push(Point::new(coords[4], coords[5])); // second control point
+            return result;
+        }
+
+        // Compute scale factor for the first control point
+        let scale0 = self.deriv_scale(&cb, 0.0, th0, k0);
+        let d0 = cb.derivative(0.0);
+        result.push(Point::new(d0.x * scale0, d0.y * scale0));
+
+        // Compute scale factor for the second control point
+        let d1 = cb.derivative(1.0);
+        let scale1 = self.deriv_scale(&cb, 1.0, -th1, k1);
+        result.push(Point::new(1.0 - d1.x * scale1, -d1.y * scale1));
+
+        result
+    }
+
+    /// Compute derivative scaling factor to match desired curvature
+    /// Parameters:
+    /// - cb: the cubic bezier curve
+    /// - t: parameter value (0 or 1 for endpoints)
+    /// - th: tangent angle at the point
+    /// - k: desired curvature (None means use default 1/3 scaling)
+    /// Returns: scale factor to apply to the derivative
+    fn deriv_scale(&self, cb: &CubicBez, t: f64, th: f64, k: Option<f64>) -> f64 {
+        // If no curvature specified, use default scale
+        if k.is_none() {
+            return 1.0 / 3.0;
+        }
+
+        let k = k.unwrap();
+        let c = th.cos();
+        let s = th.sin();
+        let d = cb.derivative(t);
+        let d2 = cb.deriv2(t);
+
+        // Compute cross product of second derivative with tangent direction
+        let d2cross = d2.y * c - d2.x * s;
+        // Compute dot product of first derivative with tangent direction
+        let ddot = d.x * c + d.y * s;
+
+        // Compute current curvature of the curve
+        let mut old_k = d2cross / (ddot * ddot);
+
+        // Fudge factor to avoid divide-by-zero
+        if old_k.abs() < 1e-6 {
+            old_k = 1e-6;
+        }
+
+        // Ratio of desired to current curvature
+        let ratio = k / old_k;
+
+        // Compute scale factor based on curvature ratio
+        // TODO: fine tune this formula
+        let scale = 1.0 / (2.0 + ratio);
+
+        scale
     }
 
     /// Compute curvature at endpoints

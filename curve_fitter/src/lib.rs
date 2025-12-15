@@ -1,4 +1,5 @@
 use kurbo::{BezPath, Point};
+use std::f64::consts::PI;
 
 use crate::spline::Spline;
 use crate::two_param_curve::TwoParamCurve;
@@ -83,4 +84,11 @@ pub struct SegmentParams {
     pub th0: f64,
     pub th1: f64,
     pub chord: f64,
+}
+
+/// Normalize angle to -π..π range
+fn mod2pi(th: f64) -> f64 {
+    let two_pi = 2.0 * PI;
+    let frac = th / two_pi;
+    two_pi * (frac - frac.round())
 }
