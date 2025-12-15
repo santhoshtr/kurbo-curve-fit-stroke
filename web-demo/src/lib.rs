@@ -1,10 +1,7 @@
-use crate::{CurveFitter, InputPoint, PointType};
-use kurbo::{BezPath, Point};
+use curve_fitter::{CurveFitter, InputPoint, PointType};
+use kurbo::Point;
 use wasm_bindgen::prelude::*;
 
-// When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
-// allocator.
-#[cfg(feature = "wee_alloc")]
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
@@ -43,8 +40,8 @@ pub struct WebPoint {
 impl WebPoint {
     #[wasm_bindgen(constructor)]
     pub fn new(x: f64, y: f64) -> WebPoint {
-        WebPoint { 
-            x, 
+        WebPoint {
+            x,
             y,
             point_type: WebPointType::Smooth,
         }

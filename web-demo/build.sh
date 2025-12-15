@@ -7,7 +7,7 @@ echo "Building WASM module..."
 rm -rf pkg/
 
 # Build with wasm-pack
-wasm-pack build --target web --out-dir pkg --features wasm
+wasm-pack build --target web --out-dir pkg
 
 echo "WASM build complete!"
 echo "Files generated in pkg/ directory"

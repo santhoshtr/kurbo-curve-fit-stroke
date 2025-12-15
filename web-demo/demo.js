@@ -6,7 +6,7 @@ import init, {
   WebPointType,
   CurveFitterOptions,
   version,
-} from "../pkg/curve_fitter.js";
+} from "./pkg/chi_web_demo.js";
 
 class CurveFitterDemo {
   constructor() {

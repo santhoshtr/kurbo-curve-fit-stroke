@@ -30,7 +30,7 @@ fn main() {
 
     let fitter = CurveFitter::new();
 
-    match fitter.fit_curve(input_points, true) {
+    match fitter.fit_curve(input_points, false) {
         Ok(bez_path) => {
             println!("Successfully fitted curve!");
             println!(

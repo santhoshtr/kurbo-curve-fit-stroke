@@ -7,9 +7,6 @@ pub mod spline;
 pub mod two_param_curve;
 pub mod two_param_spline;
 
-#[cfg(feature = "wasm")]
-pub mod wasm;
-
 #[derive(Debug, Clone)]
 pub struct InputPoint {
     pub x: f64,

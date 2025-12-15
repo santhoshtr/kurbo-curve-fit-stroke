@@ -1,0 +1,29 @@
+[package]
+name = "chi-web-demo"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+curve_fitter = {path="../curve_fitter"}
+kurbo = {workspace = true}
+wasm-bindgen = { version = "0.2",features = ["serde-serialize"] }
+js-sys = { version = "0.3" }
+web-sys = { version = "0.3", features=["console"] }
+serde = { version = "1.0", features = ["derive"]}
+serde-wasm-bindgen = { version = "0.6" }
+
+# Optional WASM utilities
+console_error_panic_hook = { version = "0.1"  }
+wee_alloc = { version = "0.4"}
+
+# Optimize for size when building for WASM
+[profile.release]
+opt-level = "s"
+lto = true
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+

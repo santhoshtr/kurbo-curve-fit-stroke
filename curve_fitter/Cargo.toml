@@ -3,40 +3,6 @@ name = "curve_fitter"
 version = "0.1.0"
 edition = "2024"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [dependencies]
-kurbo = {version = "0.12.0", features = ["std","serde"] }
-
-# WASM dependencies (all optional)
-wasm-bindgen = { version = "0.2", optional = true, features = ["serde-serialize"] }
-js-sys = { version = "0.3", optional = true }
-web-sys = { version = "0.3", features=["console"], optional = true }
-serde = { version = "1.0", features = ["derive"], optional = true }
-serde-wasm-bindgen = { version = "0.6", optional = true }
-
-# Optional WASM utilities
-console_error_panic_hook = { version = "0.1", optional = true }
-wee_alloc = { version = "0.4", optional = true }
-
-[features]
-default = []
-wasm = [
-    "wasm-bindgen",
-    "js-sys",
-    "web-sys",
-    "serde",
-    "serde-wasm-bindgen",
-    "console_error_panic_hook",
-    "wee_alloc"
-]
-
-# Optimize for size when building for WASM
-[profile.release]
-opt-level = "s"
-lto = true
-
-[package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+kurbo = { workspace = true }
 
