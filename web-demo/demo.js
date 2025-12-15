@@ -1,10 +1,13 @@
 // Import WASM module
 import init, {
   fit_curve,
+  fit_curve_with_stroke,
   curve_to_svg_path,
+  curve_to_svg_path_with_stroke,
   WebPoint,
   WebPointType,
   CurveFitterOptions,
+  StrokeOptions,
   version,
 } from "./pkg/chi_web_demo.js";
 
@@ -21,6 +24,14 @@ class CurveFitterDemo {
     this.settings = {
       cyclic: false,
       showControlPoints: true,
+    };
+
+    // Stroke settings
+    this.strokeSettings = {
+      enabled: false,
+      width: 10,
+      cap: "round",
+      join: "round",
     };
 
     // Point types (0 = Smooth, 1 = Corner)
@@ -103,6 +114,28 @@ class CurveFitterDemo {
         this.settings.showControlPoints = e.target.checked;
         this.updateDisplay();
       });
+
+    // Stroke controls
+    document.getElementById("enableStroke").addEventListener("change", (e) => {
+      this.strokeSettings.enabled = e.target.checked;
+      this.updateDisplay();
+    });
+
+    document.getElementById("strokeWidth").addEventListener("input", (e) => {
+      this.strokeSettings.width = parseFloat(e.target.value);
+      document.getElementById("strokeWidthValue").textContent = e.target.value;
+      this.updateDisplay();
+    });
+
+    document.getElementById("strokeCap").addEventListener("change", (e) => {
+      this.strokeSettings.cap = e.target.value;
+      this.updateDisplay();
+    });
+
+    document.getElementById("strokeJoin").addEventListener("change", (e) => {
+      this.strokeSettings.join = e.target.value;
+      this.updateDisplay();
+    });
 
     // Buttons
     document.getElementById("clearPoints").addEventListener("click", () => {
@@ -399,8 +432,26 @@ class CurveFitterDemo {
       const options = new CurveFitterOptions();
       options.set_cyclic(this.settings.cyclic);
 
-      // Generate curve
-      return fit_curve(webPoints, options);
+      // If stroke is enabled, generate stroked curve
+      if (this.strokeSettings.enabled) {
+        const strokeOptions = new StrokeOptions();
+        strokeOptions.set_width(this.strokeSettings.width);
+
+        if (this.strokeSettings.cap === "butt") strokeOptions.set_cap_butt();
+        else if (this.strokeSettings.cap === "square")
+          strokeOptions.set_cap_square();
+        else strokeOptions.set_cap_round();
+
+        if (this.strokeSettings.join === "bevel")
+          strokeOptions.set_join_bevel();
+        else if (this.strokeSettings.join === "miter")
+          strokeOptions.set_join_miter();
+        else strokeOptions.set_join_round();
+
+        return fit_curve_with_stroke(webPoints, options, strokeOptions);
+      } else {
+        return fit_curve(webPoints, options);
+      }
     } catch (error) {
       console.error("Error generating curve:", error);
       return [];
@@ -414,7 +465,7 @@ class CurveFitterDemo {
       const segments = this.generateCurve();
       this.drawCurve(segments);
 
-      if (this.settings.showControlPoints) {
+      if (this.settings.showControlPoints && !this.strokeSettings.enabled) {
         this.drawControlPoints(segments);
       }
     }
@@ -432,10 +483,15 @@ class CurveFitterDemo {
 
     const ctx = this.ctx;
 
-    ctx.strokeStyle = "orangered";
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
+    // Use fill for stroked curves, stroke for normal curves
+    if (this.strokeSettings.enabled) {
+      ctx.fillStyle = "orangered";
+    } else {
+      ctx.strokeStyle = "orangered";
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+    }
 
     ctx.beginPath();
 
@@ -462,7 +518,11 @@ class CurveFitterDemo {
       );
     }
 
-    ctx.stroke();
+    if (this.strokeSettings.enabled) {
+      ctx.fill();
+    } else {
+      ctx.stroke();
+    }
   }
 
   drawControlPoints(segments) {
@@ -584,13 +644,39 @@ class CurveFitterDemo {
           this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
         return WebPoint.new_with_type(p.x, p.y, pointType);
       });
-      const options = new CurveFitterOptions();
-      options.set_cyclic(this.settings.cyclic);
-      const pathData = curve_to_svg_path(webPoints, options);
+
+      const curveOptions = new CurveFitterOptions();
+      curveOptions.set_cyclic(this.settings.cyclic);
+
+      const strokeOptions = new StrokeOptions();
+      strokeOptions.set_width(this.strokeSettings.width);
+
+      // Set cap style
+      if (this.strokeSettings.cap === "butt") strokeOptions.set_cap_butt();
+      else if (this.strokeSettings.cap === "square")
+        strokeOptions.set_cap_square();
+      else strokeOptions.set_cap_round();
+
+      // Set join style
+      if (this.strokeSettings.join === "bevel") strokeOptions.set_join_bevel();
+      else if (this.strokeSettings.join === "miter")
+        strokeOptions.set_join_miter();
+      else strokeOptions.set_join_round();
+
+      const pathData = curve_to_svg_path_with_stroke(
+        webPoints,
+        curveOptions,
+        strokeOptions,
+        this.strokeSettings.enabled,
+      );
+
       const canvasHeight = this.canvas.getBoundingClientRect().height;
+      const fillStyle = this.strokeSettings.enabled
+        ? 'fill="#667eea"'
+        : 'fill="none" stroke="#667eea" stroke-width="3"';
 
       const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${this.canvas.width} ${canvasHeight}">
-  <path d="${pathData}" fill="none" stroke="#667eea" stroke-width="3" stroke-linecap="round"/>
+  <path d="${pathData}" ${fillStyle} stroke-linecap="round"/>
 </svg>`;
 
       document.getElementById("svgOutput").value = svg;

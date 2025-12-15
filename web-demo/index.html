@@ -25,26 +25,48 @@
       <p>Click to add points, drag to move them. Watch smooth curves form in real-time!</p>
     </header>
 
-    <details open name="control-group">
-      <summary>Curve options </summary>
-      <section class="controls-section">
-        <label>
-          <input type="checkbox" id="cyclicCheckbox"> Closed curve
-        </label>
+    <section class="controls-section">
+      <label>
+        <input type="checkbox" id="cyclicCheckbox"> Closed curve
+      </label>
 
-        <label>
-          <input type="checkbox" id="showControlPoints" checked> Show control points
-        </label>
+      <label>
+        <input type="checkbox" id="showControlPoints" checked> Show control points
+      </label>
 
-        <button id="clearPoints" class="btn btn-secondary">Clear All Points</button>
-        <div class="control-item">
-          <button id="loadPreset1" class="btn btn-small">S-Curve</button>
-          <button id="loadPreset2" class="btn btn-small">Triangle</button>
-          <button id="loadPreset3" class="btn btn-small">Square</button>
-        </div>
+      <button id="clearPoints" class="btn btn-secondary">Clear All Points</button>
+      <div class="control-item">
+        <button id="loadPreset1" class="btn btn-small">S-Curve</button>
+        <button id="loadPreset2" class="btn btn-small">Triangle</button>
+        <button id="loadPreset3" class="btn btn-small">Square</button>
+      </div>
+      <label>
+        <input type="checkbox" id="enableStroke"> Enable stroke expansion
+      </label>
 
-    </details>
+      <div class="control-item">
+        <label>Stroke Width: <span id="strokeWidthValue">10</span></label>
+        <input type="range" id="strokeWidth" min="1" max="50" value="10" step="0.5">
+      </div>
 
+      <div class="control-item">
+        <label>Line Cap:</label>
+        <select id="strokeCap">
+          <option value="round" selected>Round</option>
+          <option value="butt">Butt</option>
+          <option value="square">Square</option>
+        </select>
+      </div>
+
+      <div class="control-item">
+        <label>Line Join:</label>
+        <select id="strokeJoin">
+          <option value="round" selected>Round</option>
+          <option value="bevel">Bevel</option>
+          <option value="miter">Miter</option>
+        </select>
+      </div>
+    </section>
 
     <details name="control-group">
       <summary>
@@ -61,15 +83,18 @@
         <li><strong>Add points:</strong> Right-click anywhere on empty canvas space</li>
         <li><strong>Select points:</strong> Click on a point to select it</li>
         <li><strong>Move points:</strong> Drag selected points</li>
-        <li><strong>Toggle point type:</strong> Double-click on a point to switch between smooth (circle) and corner (square)</li>
+        <li><strong>Toggle point type:</strong> Double-click on a point to switch between smooth (circle) and corner
+          (square)</li>
         <li><strong>Remove points:</strong> Select a point and press Delete or Backspace</li>
         <li><strong>Closed curves:</strong> Check "Closed curve" to connect the last point to the first</li>
+        <li><strong>Stroke expansion:</strong> Enable stroke to convert the curve into a filled shape with customizable
+          width</li>
       </ul>
     </details>
 
+  </div>
 
-
-    <script type="module" src="demo.js"></script>
+  <script type="module" src="demo.js"></script>
 </body>
 
 </html>

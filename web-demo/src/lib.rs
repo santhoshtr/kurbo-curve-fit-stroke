@@ -1,5 +1,5 @@
 use curve_fitter::{CurveFitter, InputPoint, PointType};
-use kurbo::Point;
+use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
 
 #[global_allocator]
@@ -102,6 +102,60 @@ impl CurveFitterOptions {
 }
 
 #[wasm_bindgen]
+pub struct StrokeOptions {
+    width: f64,
+    cap: Cap,
+    join: Join,
+}
+
+#[wasm_bindgen]
+impl StrokeOptions {
+    #[wasm_bindgen(constructor)]
+    pub fn new() -> StrokeOptions {
+        StrokeOptions {
+            width: 3.0,
+            cap: Cap::Round,
+            join: Join::Round,
+        }
+    }
+
+    #[wasm_bindgen]
+    pub fn set_width(&mut self, width: f64) {
+        self.width = width;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_cap_butt(&mut self) {
+        self.cap = Cap::Butt;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_cap_round(&mut self) {
+        self.cap = Cap::Round;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_cap_square(&mut self) {
+        self.cap = Cap::Square;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_join_bevel(&mut self) {
+        self.join = Join::Bevel;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_join_miter(&mut self) {
+        self.join = Join::Miter;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_join_round(&mut self) {
+        self.join = Join::Round;
+    }
+}
+
+#[wasm_bindgen]
 pub struct CurveSegment {
     start_x: f64,
     start_y: f64,
@@ -163,6 +217,66 @@ fn convert_web_point_type(web_type: WebPointType) -> PointType {
     }
 }
 
+fn bez_path_to_segments(bez_path: &BezPath) -> Vec<CurveSegment> {
+    let mut segments = Vec::new();
+    let mut current_pos = Point::new(0.0, 0.0);
+
+    for element in bez_path.elements() {
+        match element {
+            kurbo::PathEl::MoveTo(pt) => {
+                current_pos = *pt;
+            }
+            kurbo::PathEl::LineTo(pt) => {
+                segments.push(CurveSegment {
+                    start_x: current_pos.x,
+                    start_y: current_pos.y,
+                    cp1_x: current_pos.x + (pt.x - current_pos.x) / 3.0,
+                    cp1_y: current_pos.y + (pt.y - current_pos.y) / 3.0,
+                    cp2_x: current_pos.x + 2.0 * (pt.x - current_pos.x) / 3.0,
+                    cp2_y: current_pos.y + 2.0 * (pt.y - current_pos.y) / 3.0,
+                    end_x: pt.x,
+                    end_y: pt.y,
+                });
+                current_pos = *pt;
+            }
+            kurbo::PathEl::CurveTo(cp1, cp2, end) => {
+                segments.push(CurveSegment {
+                    start_x: current_pos.x,
+                    start_y: current_pos.y,
+                    cp1_x: cp1.x,
+                    cp1_y: cp1.y,
+                    cp2_x: cp2.x,
+                    cp2_y: cp2.y,
+                    end_x: end.x,
+                    end_y: end.y,
+                });
+                current_pos = *end;
+            }
+            kurbo::PathEl::QuadTo(cp, end) => {
+                let cp1 = current_pos + (2.0 / 3.0) * (*cp - current_pos);
+                let cp2 = *end + (2.0 / 3.0) * (*cp - *end);
+
+                segments.push(CurveSegment {
+                    start_x: current_pos.x,
+                    start_y: current_pos.y,
+                    cp1_x: cp1.x,
+                    cp1_y: cp1.y,
+                    cp2_x: cp2.x,
+                    cp2_y: cp2.y,
+                    end_x: end.x,
+                    end_y: end.y,
+                });
+                current_pos = *end;
+            }
+            kurbo::PathEl::ClosePath => {
+                continue;
+            }
+        }
+    }
+
+    segments
+}
+
 #[wasm_bindgen]
 pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<CurveSegment> {
     console_error_panic_hook::set_once();
@@ -171,7 +285,6 @@ pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<Cur
         return Vec::new();
     }
 
-    // Convert WebPoints to InputPoints with their proper types
     let input_points: Vec<InputPoint> = points
         .iter()
         .map(|p| InputPoint {
@@ -184,71 +297,47 @@ pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<Cur
     let fitter = CurveFitter::new();
 
     match fitter.fit_curve(input_points, options.cyclic) {
-        Ok(bez_path) => {
-            let mut segments = Vec::new();
-
-            // Track current position through the path
-            let mut current_pos = Point::new(0.0, 0.0);
-
-            for element in bez_path.elements() {
-                match element {
-                    kurbo::PathEl::MoveTo(pt) => {
-                        current_pos = *pt;
-                    }
-                    kurbo::PathEl::LineTo(pt) => {
-                        // Convert line to degenerate curve
-                        segments.push(CurveSegment {
-                            start_x: current_pos.x,
-                            start_y: current_pos.y,
-                            cp1_x: current_pos.x + (pt.x - current_pos.x) / 3.0,
-                            cp1_y: current_pos.y + (pt.y - current_pos.y) / 3.0,
-                            cp2_x: current_pos.x + 2.0 * (pt.x - current_pos.x) / 3.0,
-                            cp2_y: current_pos.y + 2.0 * (pt.y - current_pos.y) / 3.0,
-                            end_x: pt.x,
-                            end_y: pt.y,
-                        });
-                        current_pos = *pt;
-                    }
-                    kurbo::PathEl::CurveTo(cp1, cp2, end) => {
-                        segments.push(CurveSegment {
-                            start_x: current_pos.x,
-                            start_y: current_pos.y,
-                            cp1_x: cp1.x,
-                            cp1_y: cp1.y,
-                            cp2_x: cp2.x,
-                            cp2_y: cp2.y,
-                            end_x: end.x,
-                            end_y: end.y,
-                        });
-                        current_pos = *end;
-                    }
-                    kurbo::PathEl::QuadTo(cp, end) => {
-                        // Convert quadratic to cubic
-                        let cp1 = current_pos + (2.0 / 3.0) * (*cp - current_pos);
-                        let cp2 = *end + (2.0 / 3.0) * (*cp - *end);
-
-                        segments.push(CurveSegment {
-                            start_x: current_pos.x,
-                            start_y: current_pos.y,
-                            cp1_x: cp1.x,
-                            cp1_y: cp1.y,
-                            cp2_x: cp2.x,
-                            cp2_y: cp2.y,
-                            end_x: end.x,
-                            end_y: end.y,
-                        });
-                        current_pos = *end;
-                    }
-                    kurbo::PathEl::ClosePath => {
-                        // Handle close path if needed
-                        continue;
-                    }
-                }
-            }
-
-            segments
-        }
+        Ok(bez_path) => bez_path_to_segments(&bez_path),
         Err(_) => Vec::new(),
+    }
+}
+
+#[wasm_bindgen]
+pub fn fit_curve_with_stroke(
+    points: Vec<WebPoint>,
+    curve_options: &CurveFitterOptions,
+    stroke_options: &StrokeOptions,
+) -> Vec<CurveSegment> {
+    console_error_panic_hook::set_once();
+
+    if points.len() < 2 {
+        return Vec::new();
+    }
+
+    let input_points: Vec<InputPoint> = points
+        .iter()
+        .map(|p| InputPoint {
+            x: p.x,
+            y: p.y,
+            point_type: convert_web_point_type(p.point_type),
+        })
+        .collect();
+
+    let fitter = CurveFitter::new();
+
+    match fitter.fit_curve(input_points, curve_options.cyclic) {
+        Ok(bez_path) => {
+            let style = Stroke::new(stroke_options.width)
+                .with_caps(stroke_options.cap)
+                .with_join(stroke_options.join);
+            let tolerance = 0.25;
+            let stroked = stroke(bez_path, &style, &StrokeOpts::default(), tolerance);
+            bez_path_to_segments(&stroked)
+        }
+        Err(e) => {
+            console_log!("Error fitting curve with stroke: {}", e);
+            Vec::new()
+        }
     }
 }
 
@@ -260,7 +349,6 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
         return String::new();
     }
 
-    // Convert WebPoints to InputPoints with their proper types
     let input_points: Vec<InputPoint> = points
         .iter()
         .map(|p| InputPoint {
@@ -278,7 +366,50 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
     }
 }
 
-// Initialize panic hook for better error messages
+#[wasm_bindgen]
+pub fn curve_to_svg_path_with_stroke(
+    points: Vec<WebPoint>,
+    curve_options: &CurveFitterOptions,
+    stroke_options: &StrokeOptions,
+    use_stroke: bool,
+) -> String {
+    console_error_panic_hook::set_once();
+
+    if points.len() < 2 {
+        return String::new();
+    }
+
+    let input_points: Vec<InputPoint> = points
+        .iter()
+        .map(|p| InputPoint {
+            x: p.x,
+            y: p.y,
+            point_type: convert_web_point_type(p.point_type),
+        })
+        .collect();
+
+    let fitter = CurveFitter::new();
+
+    match fitter.fit_curve(input_points, curve_options.cyclic) {
+        Ok(bez_path) => {
+            if use_stroke {
+                let style = Stroke::new(stroke_options.width)
+                    .with_caps(stroke_options.cap)
+                    .with_join(stroke_options.join);
+                let tolerance = 0.25;
+                let stroked = stroke(bez_path, &style, &StrokeOpts::default(), tolerance);
+                stroked.to_svg()
+            } else {
+                bez_path.to_svg()
+            }
+        }
+        Err(e) => {
+            console_log!("Error fitting curve with stroke: {}", e);
+            String::new()
+        }
+    }
+}
+
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();

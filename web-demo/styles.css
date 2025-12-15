@@ -13,6 +13,7 @@
   input,
   button,
   textarea,
+  select,
   form {
     transition: outline-offset .2s ease;
 
@@ -170,7 +171,7 @@
     gap: 1em;
 
     summary {
-      font-size: 1.2Wem;
+      font-size: 1.2em;
       font-weight: 600;
       padding: 0;
     }
@@ -204,6 +205,22 @@
   input[type="checkbox"] {
     margin-right: 8px;
     transform: scale(1.2);
+  }
+
+  select {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid color-mix(in srgb, CanvasText, #0000 80%);
+    border-radius: 4px;
+    background: Canvas;
+    color: CanvasText;
+    font-size: 0.9em;
+    cursor: pointer;
+  }
+
+  select:focus {
+    outline: 2px solid AccentColor;
+    outline-offset: 2px;
   }
 
   .btn {
