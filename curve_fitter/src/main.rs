@@ -1,4 +1,4 @@
-use curve_fitter::{CurveFitter, InputPoint, PointType, variable_stroke::VariableStroke};
+use curve_fitter::{CurveFitter, InputPoint, PointType, var_stroker::VariableStroker};
 use kurbo::{BezPath, PathEl};
 use std::fs;
 
@@ -73,14 +73,12 @@ fn main() {
             write_path_to_svg(&bez_path, "curve-fit.svg");
             // All same width - should behave like constant stroke
             let widths = vec![5.0, 5.0, 5.0, 5.0];
-            let stroke = VariableStroke::new(0.1);
+            let stroke = VariableStroker::new(0.1);
             let result_path = stroke.stroke(&bez_path, &widths);
             write_path_to_svg(&result_path, "curve-fit-same-stroke.svg");
             // Varying same width - should behave like constant stroke
             let widths = vec![10.0, 15.0, 20.0, 25.0];
-            let stroke = VariableStroke::new(0.1)
-                .with_variation_threshold(0.25)
-                .with_max_depth(8);
+            let stroke = VariableStroker::new(0.3);
             let result_path = stroke.stroke(&bez_path, &widths);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
             println!("Output has {} curve segments", count_points(&result_path));
@@ -110,10 +108,8 @@ fn main() {
         5.0,  // top
     ];
 
-    let stroke = VariableStroke::new(0.1)
-        .with_variation_threshold(0.5)
-        .with_max_depth(8);
+    let stroker = VariableStroker::new(0.1);
 
-    let result = stroke.stroke(&o_path, &widths);
+    let result = stroker.stroke(&o_path, &widths);
     write_path_to_svg(&result, "curve-fit-o-stroke.svg");
 }

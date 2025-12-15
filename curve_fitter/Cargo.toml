@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 kurbo = { workspace = true }
+arrayvec = "0.7.6"
 

@@ -6,7 +6,8 @@ use crate::two_param_curve::TwoParamCurve;
 pub mod spline;
 pub mod two_param_curve;
 pub mod two_param_spline;
-pub mod variable_stroke;
+pub mod var_offset;
+pub mod var_stroker;
 
 #[derive(Debug, Clone)]
 pub struct InputPoint {

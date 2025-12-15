@@ -187,6 +187,7 @@ dependencies = [
 name = "curve_fitter"
 version = "0.1.0"
 dependencies = [
+ "arrayvec",
  "kurbo",
 ]
 
