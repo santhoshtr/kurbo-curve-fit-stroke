@@ -362,7 +362,10 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
 
     match fitter.fit_curve(input_points, options.cyclic) {
         Ok(bez_path) => bez_path.to_svg(),
-        Err(_) => String::new(),
+        Err(e) => {
+            console_log!("Error fitting curve with stroke: {}", e);
+            String::new()
+        }
     }
 }
 
