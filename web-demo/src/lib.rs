@@ -114,7 +114,7 @@ impl StrokeOptions {
     #[wasm_bindgen(constructor)]
     pub fn new() -> StrokeOptions {
         StrokeOptions {
-            widths: vec![3.0],
+            widths: vec![10.0],
             cap: Cap::Round,
             join: Join::Round,
             tolerance: 0.25,

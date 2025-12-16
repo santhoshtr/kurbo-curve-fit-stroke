@@ -544,7 +544,7 @@ class CurveFitterDemo {
       const strokeOptions = new StrokeOptions();
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
-        (v) => v + this.params.strokeWidth / 2,
+        (v) => v + this.params.strokeWidth,
       );
       strokeOptions.set_widths(strokeWidths);
       if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
@@ -576,22 +576,14 @@ class CurveFitterDemo {
         if (this.params.showControlPoints) {
           this.drawStrokeControlPoints(strokeSegments);
         }
+      }
 
-        // Draw the original curve on top
-        const curveSegments = this.generateCurve();
-        this.drawCurve(curveSegments);
+      // Draw the original curve on top
+      const curveSegments = this.generateCurve();
+      this.drawCurve(curveSegments);
 
-        if (this.params.showControlPoints) {
-          this.drawControlPoints(curveSegments);
-        }
-      } else {
-        // Just draw the normal curve
-        const segments = this.generateCurve();
-        this.drawCurve(segments);
-
-        if (this.params.showControlPoints) {
-          this.drawControlPoints(segments);
-        }
+      if (this.params.showControlPoints) {
+        this.drawControlPoints(curveSegments);
       }
     }
 
@@ -763,13 +755,36 @@ class CurveFitterDemo {
       ctx.beginPath();
       ctx.arc(cp2Screen.x, cp2Screen.y, 3, 0, Math.PI * 2);
       ctx.fill();
+    }
 
-      // Draw segment numbers
-      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-      ctx.font = "10px monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
+    ctx.fillStyle = "rgba(100, 200, 255, 0.8)";
 
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const startScreen = this.cartesianToScreen(
+        segment.start_x,
+        segment.start_y,
+      );
+      const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
+
+      ctx.beginPath();
+      ctx.arc(startScreen.x, startScreen.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      if (i === segments.length - 1) {
+        ctx.beginPath();
+        ctx.arc(endScreen.x, endScreen.y, 5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
       const startScreen = this.cartesianToScreen(
         segment.start_x,
         segment.start_y,
@@ -875,7 +890,7 @@ class CurveFitterDemo {
       const strokeOptions = new StrokeOptions();
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
-        (v) => v + this.params.strokeWidth / 2,
+        (v) => v + this.params.strokeWidth,
       );
       strokeOptions.set_widths(strokeWidths);
 
