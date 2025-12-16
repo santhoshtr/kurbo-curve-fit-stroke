@@ -29,6 +29,7 @@ class CurveFitterDemo {
       strokeWidth: 20,
       strokeCap: "round",
       strokeJoin: "round",
+      tolerance: 0.1,
       pointOffsets: [],
     };
 
@@ -132,6 +133,15 @@ class CurveFitterDemo {
         min: 1,
         max: 50,
         step: 0.5,
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder
+      .addBinding(this.params, "tolerance", {
+        label: "Stroke accuracy",
+        min: 0.05,
+        max: 10,
+        step: 0.05,
       })
       .on("change", () => this.updateDisplay());
 
@@ -542,6 +552,7 @@ class CurveFitterDemo {
       options.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
+      strokeOptions.set_tolerance(this.params.tolerance);
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
         (v) => v + this.params.strokeWidth,
@@ -888,6 +899,8 @@ class CurveFitterDemo {
       curveOptions.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
+      strokeOptions.set_tolerance(this.params.tolerance);
+
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
         (v) => v + this.params.strokeWidth,

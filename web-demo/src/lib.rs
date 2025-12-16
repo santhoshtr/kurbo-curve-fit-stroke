@@ -117,7 +117,7 @@ impl StrokeOptions {
             widths: vec![10.0],
             cap: Cap::Round,
             join: Join::Round,
-            tolerance: 0.25,
+            tolerance: 0.1,
         }
     }
 
