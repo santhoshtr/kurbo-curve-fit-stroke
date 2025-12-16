@@ -1,4 +1,3 @@
-// Import WASM module
 import init, {
   fit_curve,
   fit_curve_with_stroke,
@@ -184,7 +183,9 @@ class CurveFitterDemo {
     presetsFolder.addButton({ title: "Square" }).on("click", () => {
       this.loadPreset("square");
     });
-
+    presetsFolder.addBlade({
+      view: "separator",
+    });
     presetsFolder.addButton({ title: "Clear All" }).on("click", () => {
       this.clearPoints();
     });
