@@ -165,7 +165,7 @@ class CurveFitterDemo {
         Ellipse: "ellipse",
       },
     });
-    //.on("change", () => this.updateDisplay());
+
     // Presets folder
     const presetsFolder = this.pane.addFolder({
       title: "Presets",
@@ -460,26 +460,44 @@ class CurveFitterDemo {
       const options = new CurveFitterOptions();
       options.set_cyclic(this.params.cyclic);
 
-      if (this.params.strokeEnabled) {
-        const strokeOptions = new StrokeOptions();
-        strokeOptions.set_width(this.params.strokeWidth);
-
-        if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
-        else if (this.params.strokeCap === "square")
-          strokeOptions.set_cap_square();
-        else strokeOptions.set_cap_round();
-
-        if (this.params.strokeJoin === "bevel") strokeOptions.set_join_bevel();
-        else if (this.params.strokeJoin === "miter")
-          strokeOptions.set_join_miter();
-        else strokeOptions.set_join_round();
-
-        return fit_curve_with_stroke(webPoints, options, strokeOptions);
-      } else {
-        return fit_curve(webPoints, options);
-      }
+      return fit_curve(webPoints, options);
     } catch (error) {
       console.error("Error generating curve:", error);
+      return [];
+    }
+  }
+
+  generateStrokeCurve() {
+    if (this.points.length < 2) {
+      return [];
+    }
+
+    try {
+      const webPoints = this.points.map((p, i) => {
+        const pointType =
+          this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
+        return WebPoint.new_with_type(p.x, p.y, pointType);
+      });
+
+      const options = new CurveFitterOptions();
+      options.set_cyclic(this.params.cyclic);
+
+      const strokeOptions = new StrokeOptions();
+      strokeOptions.set_width(this.params.strokeWidth);
+
+      if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
+      else if (this.params.strokeCap === "square")
+        strokeOptions.set_cap_square();
+      else strokeOptions.set_cap_round();
+
+      if (this.params.strokeJoin === "bevel") strokeOptions.set_join_bevel();
+      else if (this.params.strokeJoin === "miter")
+        strokeOptions.set_join_miter();
+      else strokeOptions.set_join_round();
+
+      return fit_curve_with_stroke(webPoints, options, strokeOptions);
+    } catch (error) {
+      console.error("Error generating stroke curve:", error);
       return [];
     }
   }
@@ -488,11 +506,30 @@ class CurveFitterDemo {
     this.clearCanvas();
 
     if (this.points.length >= 2) {
-      const segments = this.generateCurve();
-      this.drawCurve(segments);
+      // If stroke is enabled, draw both stroke outline and the original path
+      if (this.params.strokeEnabled) {
+        const strokeSegments = this.generateStrokeCurve();
+        this.drawStrokeOutline(strokeSegments);
 
-      if (this.params.showControlPoints && !this.params.strokeEnabled) {
-        this.drawControlPoints(segments);
+        if (this.params.showControlPoints) {
+          this.drawStrokeControlPoints(strokeSegments);
+        }
+
+        // Draw the original curve on top
+        const curveSegments = this.generateCurve();
+        this.drawCurve(curveSegments);
+
+        if (this.params.showControlPoints) {
+          this.drawControlPoints(curveSegments);
+        }
+      } else {
+        // Just draw the normal curve
+        const segments = this.generateCurve();
+        this.drawCurve(segments);
+
+        if (this.params.showControlPoints) {
+          this.drawControlPoints(segments);
+        }
       }
     }
 
@@ -508,14 +545,10 @@ class CurveFitterDemo {
 
     const ctx = this.ctx;
 
-    if (this.params.strokeEnabled) {
-      ctx.fillStyle = "orangered";
-    } else {
-      ctx.strokeStyle = "orangered";
-      ctx.lineWidth = 3;
-      ctx.lineCap = "round";
-      ctx.lineJoin = "round";
-    }
+    ctx.strokeStyle = "orangered";
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
     ctx.beginPath();
 
@@ -540,11 +573,43 @@ class CurveFitterDemo {
       );
     }
 
-    if (this.params.strokeEnabled) {
-      ctx.fill();
-    } else {
-      ctx.stroke();
+    ctx.stroke();
+  }
+
+  drawStrokeOutline(segments) {
+    if (segments.length === 0) return;
+
+    const ctx = this.ctx;
+
+    ctx.fillStyle = "rgba(255, 69, 0, 0.2)";
+    ctx.strokeStyle = "rgba(255, 69, 0, 0.8)";
+    ctx.lineWidth = 1;
+
+    ctx.beginPath();
+
+    const startScreen = this.cartesianToScreen(
+      segments[0].start_x,
+      segments[0].start_y,
+    );
+    ctx.moveTo(startScreen.x, startScreen.y);
+
+    for (const segment of segments) {
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+      const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
+
+      ctx.bezierCurveTo(
+        cp1Screen.x,
+        cp1Screen.y,
+        cp2Screen.x,
+        cp2Screen.y,
+        endScreen.x,
+        endScreen.y,
+      );
     }
+
+    ctx.fill();
+    ctx.stroke();
   }
 
   drawControlPoints(segments) {
@@ -592,6 +657,65 @@ class CurveFitterDemo {
     }
   }
 
+  drawStrokeControlPoints(segments) {
+    const ctx = this.ctx;
+
+    ctx.strokeStyle = "rgba(203, 166, 247, 0.5)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const startScreen = this.cartesianToScreen(
+        segment.start_x,
+        segment.start_y,
+      );
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+      const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
+
+      ctx.beginPath();
+      ctx.moveTo(startScreen.x, startScreen.y);
+      ctx.lineTo(cp1Screen.x, cp1Screen.y);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(cp2Screen.x, cp2Screen.y);
+      ctx.lineTo(endScreen.x, endScreen.y);
+      ctx.stroke();
+    }
+
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = "rgba(203, 166, 247, 0.6)";
+
+    for (let i = 0; i < segments.length; i++) {
+      const segment = segments[i];
+      const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
+      const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
+
+      ctx.beginPath();
+      ctx.arc(cp1Screen.x, cp1Screen.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(cp2Screen.x, cp2Screen.y, 3, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Draw segment numbers
+      ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+      ctx.font = "10px monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+
+      const startScreen = this.cartesianToScreen(
+        segment.start_x,
+        segment.start_y,
+      );
+      ctx.fillText(`${i}`, startScreen.x - 10, startScreen.y - 10);
+    }
+  }
+
   drawPoints() {
     const ctx = this.ctx;
 
@@ -605,14 +729,14 @@ class CurveFitterDemo {
 
       ctx.fillStyle = isSelected ? "#f38ba8" : "#11111b";
       ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 1;
 
       ctx.beginPath();
       if (isCorner) {
-        const size = isSelected ? 8 : 6;
+        const size = isSelected ? 6 : 4;
         ctx.rect(screenPos.x - size, screenPos.y - size, size * 2, size * 2);
       } else {
-        const radius = isSelected ? 8 : 6;
+        const radius = isSelected ? 6 : 4;
         ctx.arc(screenPos.x, screenPos.y, radius, 0, Math.PI * 2);
       }
       ctx.fill();
