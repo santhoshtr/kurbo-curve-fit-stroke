@@ -22,7 +22,8 @@ body {
   header {
     padding: 1em;
 
-   }
+    ;
+  }
 
   #controls {
     position: absolute;
@@ -88,3 +89,13 @@ body {
       max-height: 40dvh;
     }
   }
+
+    dialog {
+      padding: 2em;
+      margin: auto;
+      border: 1px solid CanvasText;
+      ul {margin: 1em};
+      li{line-height: 2;}
+    }
+
+}

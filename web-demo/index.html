@@ -12,12 +12,22 @@
 <body>
 
   <header>
-      <h1>Curve fitter</h1>
-      <p>Implementation of <a href="https://raphlinus.github.io/curves/2018/12/21/new-spline.html">smooth curves
-          algorithm</a> by Raph Levien</p>
-      <p>Click to add points, drag to move them. Watch smooth curves form in real-time!</p>
-       <details class="instructions" name="control-group">
-      <summary>Instructions</summary>
+    <h1>Curve fitter</h1>
+      <button onclick="instructions_dialog.showModal();" style="float:right;"> ℹ️  </button>
+    <p>Implementation of <a href="https://raphlinus.github.io/curves/2018/12/21/new-spline.html">smooth curves
+        algorithm</a> by Raph Levien</p>
+  </header>
+
+  <div class="canvas-container">
+    <canvas id="curveCanvas"></canvas>
+    <div class="canvas-overlay">
+      <div id="pointInfo" class="point-info"></div>
+    </div>
+    <div id="controls"></div>
+  </div>
+  <dialog id="instructions_dialog" closeby="any">
+      <h2>Instructions</h2>
+
       <ul>
         <li><strong>Add points:</strong> Right-click anywhere on empty canvas space</li>
         <li><strong>Select points:</strong> Click on a point to select it</li>
@@ -29,17 +39,7 @@
         <li><strong>Stroke expansion:</strong> Enable stroke to convert the curve into a filled shape with customizable
           width</li>
       </ul>
-    </details>
-
-    </header>
-
-  <div class="canvas-container">
-    <canvas id="curveCanvas"></canvas>
-    <div class="canvas-overlay">
-      <div id="pointInfo" class="point-info"></div>
-    </div>
-     <div id="controls"></div>
-  </div>
+    </dialog>
 
   <script type="module" src="demo.js"></script>
 </body>
