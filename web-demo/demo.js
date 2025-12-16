@@ -25,16 +25,15 @@ class CurveFitterDemo {
     this.params = {
       cyclic: false,
       showControlPoints: true,
-      strokeEnabled: false,
-      strokeWidth: 10,
+      strokeEnabled: true,
+      strokeWidth: 20,
       strokeCap: "round",
       strokeJoin: "round",
-      nib: "circle",
+      pointOffsets: [],
     };
 
     // Point types (0 = Smooth, 1 = Corner)
     this.pointTypes = [];
-
     // Canvas state
     this.canvasRect = null;
 
@@ -158,14 +157,6 @@ class CurveFitterDemo {
       })
       .on("change", () => this.updateDisplay());
 
-    strokeFolder.addBinding(this.params, "nib", {
-      label: "Nib",
-      options: {
-        Circle: "circle",
-        Ellipse: "ellipse",
-      },
-    });
-
     // Presets folder
     const presetsFolder = this.pane.addFolder({
       title: "Presets",
@@ -280,6 +271,18 @@ class CurveFitterDemo {
     }
   }
 
+  ensurePointOffsetsInitialized() {
+    while (this.params.pointOffsets.length < this.points.length) {
+      this.params.pointOffsets.push(0);
+    }
+    if (this.params.pointOffsets.length > this.points.length) {
+      this.params.pointOffsets = this.params.pointOffsets.slice(
+        0,
+        this.points.length,
+      );
+    }
+  }
+
   onKeyDown(e) {
     if (
       (e.key === "Delete" || e.key === "Backspace") &&
@@ -288,6 +291,58 @@ class CurveFitterDemo {
       this.removePoint(this.selectedPointIndex);
       e.preventDefault();
       return;
+    }
+
+    if (this.selectedPointIndex !== -1 && (e.key === "+" || e.key === "=")) {
+      this.ensurePointOffsetsInitialized();
+      this.params.pointOffsets[this.selectedPointIndex] += 1;
+      this.updateDisplay();
+      e.preventDefault();
+      return;
+    }
+
+    if (this.selectedPointIndex !== -1 && e.key === "0") {
+      this.ensurePointOffsetsInitialized();
+      this.params.pointOffsets[this.selectedPointIndex] = 0;
+      this.updateDisplay();
+      e.preventDefault();
+      return;
+    }
+
+    if (this.selectedPointIndex !== -1 && (e.key === "-" || e.key === "_")) {
+      this.ensurePointOffsetsInitialized();
+      this.params.pointOffsets[this.selectedPointIndex] = Math.max(
+        1,
+        this.params.pointOffsets[this.selectedPointIndex] - 1,
+      );
+      this.updateDisplay();
+      e.preventDefault();
+      return;
+    }
+
+    if (this.selectedPointIndex !== -1) {
+      const step = e.shiftKey ? 10 : 1;
+      let changed = false;
+
+      if (e.key === "ArrowLeft") {
+        this.points[this.selectedPointIndex].x -= step;
+        changed = true;
+      } else if (e.key === "ArrowRight") {
+        this.points[this.selectedPointIndex].x += step;
+        changed = true;
+      } else if (e.key === "ArrowUp") {
+        this.points[this.selectedPointIndex].y -= step;
+        changed = true;
+      } else if (e.key === "ArrowDown") {
+        this.points[this.selectedPointIndex].y += step;
+        changed = true;
+      }
+
+      if (changed) {
+        this.updateDisplay();
+        e.preventDefault();
+        return;
+      }
     }
   }
 
@@ -377,6 +432,7 @@ class CurveFitterDemo {
   addPointAtPosition(x, y) {
     this.points.push({ x, y });
     this.pointTypes.push(0);
+    this.params.pointOffsets.push(this.params.strokeWidth);
     this.selectedPointIndex = this.points.length - 1;
     this.updateDisplay();
   }
@@ -384,6 +440,7 @@ class CurveFitterDemo {
   removePoint(index) {
     this.points.splice(index, 1);
     this.pointTypes.splice(index, 1);
+    this.params.pointOffsets.splice(index, 1);
 
     if (this.selectedPointIndex === index) {
       this.selectedPointIndex = -1;
@@ -403,6 +460,7 @@ class CurveFitterDemo {
   clearPoints() {
     this.points = [];
     this.pointTypes = [];
+    this.params.pointOffsets = [];
     this.selectedPointIndex = -1;
     this.updateDisplay();
   }
@@ -440,6 +498,7 @@ class CurveFitterDemo {
     if (presets[name]) {
       this.points = [...presets[name].points];
       this.pointTypes = [...presets[name].types];
+      this.params.pointOffsets = new Array(this.points.length).fill(0);
       this.selectedPointIndex = -1;
       this.updateDisplay();
     }
@@ -483,9 +542,10 @@ class CurveFitterDemo {
       options.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
-      const strokeWidths = this.points.map((p, i) => {
-        return this.params.strokeWidth;
-      });
+      this.ensurePointOffsetsInitialized();
+      const strokeWidths = this.params.pointOffsets.map(
+        (v) => v + this.params.strokeWidth / 2,
+      );
       strokeOptions.set_widths(strokeWidths);
       if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
       else if (this.params.strokeCap === "square")
@@ -813,9 +873,10 @@ class CurveFitterDemo {
       curveOptions.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
-      const strokeWidths = this.points.map((p, i) => {
-        return this.params.strokeWidth + i;
-      });
+      this.ensurePointOffsetsInitialized();
+      const strokeWidths = this.params.pointOffsets.map(
+        (v) => v + this.params.strokeWidth / 2,
+      );
       strokeOptions.set_widths(strokeWidths);
 
       if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();

@@ -13,7 +13,7 @@
 
   <header>
     <h1>Curve fitter</h1>
-      <button onclick="instructions_dialog.showModal();" style="float:right;"> ℹ️  </button>
+    <button onclick="instructions_dialog.showModal();" style="float:right;"> ℹ️ </button>
     <p>Implementation of <a href="https://raphlinus.github.io/curves/2018/12/21/new-spline.html">smooth curves
         algorithm</a> by Raph Levien</p>
   </header>
@@ -26,20 +26,30 @@
     <div id="controls"></div>
   </div>
   <dialog id="instructions_dialog" closeby="any">
+    <form method="dialog" style="float:right;">
+      <button> ❌ </button>
+    </form>
       <h2>Instructions</h2>
 
-      <ul>
-        <li><strong>Add points:</strong> Right-click anywhere on empty canvas space</li>
-        <li><strong>Select points:</strong> Click on a point to select it</li>
-        <li><strong>Move points:</strong> Drag selected points</li>
-        <li><strong>Toggle point type:</strong> Double-click on a point to switch between smooth (circle) and corner
-          (square)</li>
-        <li><strong>Remove points:</strong> Select a point and press Delete or Backspace</li>
-        <li><strong>Closed curves:</strong> Check "Closed curve" to connect the last point to the first</li>
-        <li><strong>Stroke expansion:</strong> Enable stroke to convert the curve into a filled shape with customizable
-          width</li>
-      </ul>
-    </dialog>
+    <ul>
+      <li><strong>Add points:</strong> Right-click anywhere on empty canvas space</li>
+      <li><strong>Select points:</strong> Click on a point to select it</li>
+      <li><strong>Move points:</strong> Drag selected points. Or use arrow keys while the point is selected.</li>
+      <li><strong>Toggle point type:</strong> Double-click on a point to switch between smooth (circle) and corner
+        (square)</li>
+      <li><strong>Remove points:</strong> Select a point and press <kbd>Del</kbd> or <kbd>Backspace</kbd></li>
+      <li><strong>Closed curves:</strong> Check "Closed curve" to connect the last point to the first</li>
+      <li><strong>Stroke expansion:</strong> Enable stroke to convert the curve into a filled shape with customizable
+        width
+        <ul>
+          <li>By default the stroke width(offset) will be uniform for all points. </li>
+          <li>Select a point and press <kbd>+</kbd> or <kbd>-</kbd> keys to inrease or decrease the stroke offset</li>
+          <li>Select a point and press <kbd>0</kbd> to reset the offset back to stroke width. ie. Undo the previous
+            step.</li>
+        </ul>
+      </li>
+    </ul>
+  </dialog>
 
   <script type="module" src="demo.js"></script>
 </body>
