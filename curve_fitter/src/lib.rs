@@ -1,4 +1,4 @@
-use kurbo::{BezPath, Point};
+use kurbo::{BezPath, PathSeg, Point, Vec2};
 use std::f64::consts::PI;
 
 use crate::spline::Spline;
@@ -90,4 +90,41 @@ fn mod2pi(th: f64) -> f64 {
     let two_pi = 2.0 * PI;
     let frac = th / two_pi;
     two_pi * (frac - frac.round())
+}
+
+// Compute endpoint tangents of a path segment.
+///
+/// This version is robust to the path segment not being a regular curve.
+fn tangents(path: &PathSeg) -> (Vec2, Vec2) {
+    const EPS: f64 = 1e-12;
+    match path {
+        PathSeg::Line(l) => {
+            let d = l.p1 - l.p0;
+            (d, d)
+        }
+        PathSeg::Quad(q) => {
+            let d01 = q.p1 - q.p0;
+            let d0 = if d01.hypot2() > EPS { d01 } else { q.p2 - q.p0 };
+            let d12 = q.p2 - q.p1;
+            let d1 = if d12.hypot2() > EPS { d12 } else { q.p2 - q.p0 };
+            (d0, d1)
+        }
+        PathSeg::Cubic(c) => {
+            let d01 = c.p1 - c.p0;
+            let d0 = if d01.hypot2() > EPS {
+                d01
+            } else {
+                let d02 = c.p2 - c.p0;
+                if d02.hypot2() > EPS { d02 } else { c.p3 - c.p0 }
+            };
+            let d23 = c.p3 - c.p2;
+            let d1 = if d23.hypot2() > EPS {
+                d23
+            } else {
+                let d13 = c.p3 - c.p1;
+                if d13.hypot2() > EPS { d13 } else { c.p3 - c.p0 }
+            };
+            (d0, d1)
+        }
+    }
 }

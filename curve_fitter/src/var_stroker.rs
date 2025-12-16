@@ -1,6 +1,6 @@
-use kurbo::{BezPath, CubicBez, PathEl, PathSeg, Point, Shape};
+use kurbo::{BezPath, CubicBez, ParamCurveArclen, PathEl, PathSeg, Point, Shape, Vec2};
 
-use crate::var_offset::offset_cubic_variable;
+use crate::{tangents, var_offset::offset_cubic_variable};
 
 pub struct VariableStroker {
     pub tolerance: f64,
@@ -22,7 +22,93 @@ impl VariableStroker {
         if segments.is_empty() {
             return BezPath::new();
         }
+        let count = segments.len();
+        let is_closed = path
+            .elements()
+            .iter()
+            .any(|el| matches!(el, PathEl::ClosePath));
+        // 1. Pre-calculate "Ideal" Offset Tangents for every node
+        // We need to know the tangent entering node i and leaving node i.
+        // If the source is smooth, we blend them.
 
+        let mut left_tangents = vec![None; count + 1]; // Tangents for the Left offset path
+        let mut right_tangents = vec![None; count + 1]; // Tangents for the Right offset path
+
+        for i in 0..=count {
+            if !is_closed && (i == 0 || i == count) {
+                continue;
+            }
+
+            // Indices for Previous and Next segments
+            let prev_idx = if i == 0 { count - 1 } else { i - 1 };
+            let curr_idx = if i == count { 0 } else { i };
+
+            // Bounds check for open paths
+            if !is_closed && (prev_idx >= count || curr_idx >= count) {
+                continue;
+            }
+
+            let prev_seg: PathSeg = segments[prev_idx];
+            let curr_seg: PathSeg = segments[curr_idx];
+
+            // Source Tangents at the node
+            let (_start_tangent, tan_in) = tangents(&prev_seg);
+            let (tan_out, _end_tangent) = tangents(&curr_seg);
+
+            // Check if Source is G1 (Smooth)
+            // Dot product close to 1.0 means vectors are aligned
+            let is_source_smooth = tan_in.dot(tan_out) > 0.99; // approx 8 degrees tolerance
+
+            if is_source_smooth {
+                // Calculate estimated w' (change in width per unit arc length)
+                let w_prev_start = widths[prev_idx % widths.len()];
+                let w_node = widths[i % widths.len()];
+                let w_next_end = widths[(i + 1) % widths.len()];
+
+                let len_prev = prev_seg.arclen(1e-3);
+                let len_curr = curr_seg.arclen(1e-3);
+
+                // w' (Slope of width)
+                let w_prime_in = (w_node - w_prev_start) / len_prev;
+                let w_prime_out = (w_next_end - w_node) / len_curr;
+
+                // --- LEFT SIDE TANGENT CALCULATION ---
+                // Q' = P' + w' * N + w * N'
+                // At the join, N aligns. The main influence on direction is P' and w' * N.
+                let n_in = Vec2::new(-tan_in.y, tan_in.x); // Normal
+                let n_out = Vec2::new(-tan_out.y, tan_out.x);
+
+                // Unnormalized tangent vectors for offset
+                // T_offset ≈ Tangent + (w_slope * Normal)
+                let t_off_in_left = tan_in + n_in * w_prime_in;
+                let t_off_out_left = tan_out + n_out * w_prime_out;
+
+                // Average and Normalize
+                let avg_left = (t_off_in_left.normalize() + t_off_out_left.normalize()).normalize();
+
+                // Store this "Locked" tangent for the End of Prev and Start of Curr
+                left_tangents[i] = Some(avg_left);
+
+                // --- RIGHT SIDE TANGENT CALCULATION ---
+                // Right side uses -width, so slope is -w'
+                // Normal is same direction (or inverted depending on convention,
+                // but here we used `offset_cubic(..., -w)`.
+                // Effectively, right offset is P - w*N.
+                // T_offset_right ≈ Tangent - (w_slope * Normal)
+                let t_off_in_right = tan_in - n_in * w_prime_in;
+                let t_off_out_right = tan_out - n_out * w_prime_out;
+
+                let avg_right =
+                    (t_off_in_right.normalize() + t_off_out_right.normalize()).normalize();
+                right_tangents[i] = Some(avg_right);
+            }
+        }
+
+        // Handle wrap-around for closed paths indices
+        if is_closed {
+            left_tangents[0] = left_tangents[count];
+            right_tangents[0] = right_tangents[count];
+        }
         // We accumulate the generated segments for left and right sides separateley
         // so we can reverse the right side later.
         // Inner Vec<PathEl> represents the offset result of a SINGLE source segment
@@ -30,17 +116,19 @@ impl VariableStroker {
         let mut left_chains: Vec<Vec<PathEl>> = Vec::with_capacity(segments.len());
         let mut right_chains: Vec<Vec<PathEl>> = Vec::with_capacity(segments.len());
 
-        let is_closed = path
-            .elements()
-            .iter()
-            .any(|el| matches!(el, PathEl::ClosePath));
-
         // --- 1. Generate Offsets ---
-        for (i, seg) in segments.iter().enumerate() {
+        for i in 0..count {
+            let seg = segments[i];
             // Determine widths for this segment
             let w0 = widths[i % widths.len()];
             let w1 = widths[(i + 1) % widths.len()];
 
+            // Get locked tangents if they exist
+            let l_tan0 = left_tangents[i];
+            let l_tan1 = left_tangents[i + 1];
+
+            let r_tan0 = right_tangents[i];
+            let r_tan1 = right_tangents[i + 1];
             // Convert segment to cubic (normalize inputs)
             let cubic = match seg {
                 PathSeg::Line(l) => {
@@ -53,19 +141,30 @@ impl VariableStroker {
                     )
                 }
                 PathSeg::Quad(q) => q.raise(),
-                PathSeg::Cubic(c) => *c,
+                PathSeg::Cubic(c) => c,
             };
 
             // Calculate Left Side (Positive width)
-            let mut left_res = BezPath::new();
-            // Note: offset_cubic_variable must be imported/available
-            offset_cubic_variable(cubic, w0, w1, self.tolerance, &mut left_res);
+            let mut l_path = BezPath::new();
+            offset_cubic_variable(cubic, w0, w1, l_tan0, l_tan1, self.tolerance, &mut l_path);
             // Collect elements, stripping the initial MoveTo for all but the very first logic (handled later)
-            left_chains.push(left_res.elements().to_vec());
+            left_chains.push(l_path.elements().to_vec());
 
             // Calculate Right Side (Negative width -> flips side)
             let mut right_res = BezPath::new();
-            offset_cubic_variable(cubic, -w0, -w1, self.tolerance, &mut right_res);
+            // Note for Right Side:
+            // We are passing -w0, -w1.
+            // The calculated locked tangents `r_tan` are approximate unit vectors.
+            // offset_cubic_variable expects the tangent to point "Forward" along the curve.
+            offset_cubic_variable(
+                cubic,
+                -w0,
+                -w1,
+                r_tan0,
+                r_tan1,
+                self.tolerance,
+                &mut right_res,
+            );
             right_chains.push(right_res.elements().to_vec());
         }
 
@@ -156,8 +255,12 @@ impl VariableStroker {
 
         // -- D. Start Cap / Close --
         result.close_path();
-
         result
+        //
+        // let options = SimplifyOptions::default()
+        //     .opt_level(SimplifyOptLevel::Subdivide)
+        //     .angle_thresh(1.0);
+        // simplify_bezpath(&result, 0.1, &options)
     }
 }
 

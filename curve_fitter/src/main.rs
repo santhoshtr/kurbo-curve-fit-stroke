@@ -1,5 +1,8 @@
 use curve_fitter::{CurveFitter, InputPoint, PointType, var_stroker::VariableStroker};
-use kurbo::{BezPath, PathEl};
+use kurbo::{
+    BezPath, PathEl,
+    simplify::{SimplifyOptLevel, SimplifyOptions, simplify_bezpath},
+};
 use std::fs;
 
 fn write_path_to_svg(bez_path: &BezPath, output_file_name: &str) {
@@ -78,7 +81,7 @@ fn main() {
             write_path_to_svg(&result_path, "curve-fit-same-stroke.svg");
             // Varying same width - should behave like constant stroke
             let widths = vec![10.0, 15.0, 20.0, 25.0];
-            let stroke = VariableStroker::new(0.3);
+            let stroke = VariableStroker::new(0.1);
             let result_path = stroke.stroke(&bez_path, &widths);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
             println!("Output has {} curve segments", count_points(&result_path));
@@ -108,8 +111,16 @@ fn main() {
         5.0,  // top
     ];
 
-    let stroker = VariableStroker::new(0.1);
+    let stroker = VariableStroker::new(0.2);
 
-    let result = stroker.stroke(&o_path, &widths);
-    write_path_to_svg(&result, "curve-fit-o-stroke.svg");
+    let result_path = stroker.stroke(&o_path, &widths);
+    let options = SimplifyOptions::default().opt_level(SimplifyOptLevel::Optimize);
+    let simplified_path = simplify_bezpath(&result_path, 0.1, &options);
+    write_path_to_svg(&result_path, "curve-fit-o-stroke.svg");
+    write_path_to_svg(&simplified_path, "curve-fit-o-stroke-simplified.svg");
+    println!("Output has {} curve segments", count_points(&result_path));
+    println!(
+        "Simplified Output has {} curve segments",
+        count_points(&simplified_path)
+    );
 }

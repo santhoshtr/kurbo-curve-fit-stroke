@@ -8,6 +8,8 @@ use kurbo::{
     common::{solve_itp, solve_quadratic},
 };
 
+use crate::tangents;
+
 /// State used for computing a variable-width offset curve of a single cubic.
 struct VariableCubicOffset {
     /// The cubic being offset.
@@ -67,7 +69,17 @@ struct SubdivisionPoint {
 /// * `w1`: The offset distance at t=1.
 ///
 /// Width is interpolated linearly with t between w0 and w1.
-pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, tolerance: f64, result: &mut BezPath) {
+pub fn offset_cubic_variable(
+    c: CubicBez,
+    w0: f64,
+    w1: f64,
+
+    // Optional locked tangents (normalized)
+    tan0_override: Option<Vec2>,
+    tan1_override: Option<Vec2>,
+    tolerance: f64,
+    result: &mut BezPath,
+) {
     // Regularization tuning
     const DIM_TUNE: f64 = 0.25;
 
@@ -78,8 +90,9 @@ pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, tolerance: f64, resu
     let co = VariableCubicOffset::new(c_regularized, w0, w1, tolerance);
 
     let (tan0, tan1) = tangents(&PathSeg::Cubic(c));
-    let utan0 = tan0.normalize();
-    let utan1 = tan1.normalize();
+    // Use override if provided, otherwise derive from source
+    let utan0 = tan0_override.unwrap_or_else(|| tan0.normalize());
+    let utan1 = tan1_override.unwrap_or_else(|| tan1.normalize());
 
     let cusp0 = co.endpoint_cusp(co.q.p0, co.k0, w0);
     let cusp1 = co.endpoint_cusp(co.q.p2, co.k0 + co.k1 + co.k2, w1);
@@ -553,43 +566,6 @@ impl NewTrait for CubicBez {
         None
     }
 }
-// Compute endpoint tangents of a path segment.
-///
-/// This version is robust to the path segment not being a regular curve.
-fn tangents(path: &PathSeg) -> (Vec2, Vec2) {
-    const EPS: f64 = 1e-12;
-    match path {
-        PathSeg::Line(l) => {
-            let d = l.p1 - l.p0;
-            (d, d)
-        }
-        PathSeg::Quad(q) => {
-            let d01 = q.p1 - q.p0;
-            let d0 = if d01.hypot2() > EPS { d01 } else { q.p2 - q.p0 };
-            let d12 = q.p2 - q.p1;
-            let d1 = if d12.hypot2() > EPS { d12 } else { q.p2 - q.p0 };
-            (d0, d1)
-        }
-        PathSeg::Cubic(c) => {
-            let d01 = c.p1 - c.p0;
-            let d0 = if d01.hypot2() > EPS {
-                d01
-            } else {
-                let d02 = c.p2 - c.p0;
-                if d02.hypot2() > EPS { d02 } else { c.p3 - c.p0 }
-            };
-            let d23 = c.p3 - c.p2;
-            let d1 = if d23.hypot2() > EPS {
-                d23
-            } else {
-                let d13 = c.p3 - c.p1;
-                if d13.hypot2() > EPS { d13 } else { c.p3 - c.p0 }
-            };
-            (d0, d1)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -605,7 +581,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 5.0, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 5.0, None, None, 0.1, &mut result);
 
         println!("SVG path: {}", result.to_svg());
         // Should produce a path with at least one element
@@ -623,7 +599,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 10.0, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 10.0, None, None, 0.1, &mut result);
 
         println!("SVG path: {}", result.to_svg());
         // Should produce a path
@@ -641,7 +617,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 10.0, 12.0, 0.1, &mut result);
+        offset_cubic_variable(c, 10.0, 12.0, None, None, 0.1, &mut result);
         println!("{}", result.to_svg());
         assert!(result.elements().len() > 0);
     }
@@ -657,7 +633,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, -5.0, -5.0, 0.1, &mut result);
+        offset_cubic_variable(c, -5.0, -5.0, None, None, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -673,7 +649,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 0.0, 10.0, 0.1, &mut result);
+        offset_cubic_variable(c, 0.0, 10.0, None, None, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -740,7 +716,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 8.0, 12.0, 0.1, &mut result);
+        offset_cubic_variable(c, 8.0, 12.0, None, None, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -756,10 +732,10 @@ mod tests {
 
         // Test with different tolerances
         let mut result_low_tol = BezPath::new();
-        offset_cubic_variable(c, 10.0, 10.0, 0.01, &mut result_low_tol);
+        offset_cubic_variable(c, 10.0, 10.0, None, None, 0.01, &mut result_low_tol);
 
         let mut result_high_tol = BezPath::new();
-        offset_cubic_variable(c, 10.0, 10.0, 1.0, &mut result_high_tol);
+        offset_cubic_variable(c, 10.0, 10.0, None, None, 1.0, &mut result_high_tol);
 
         // Both should produce valid paths
         assert!(result_low_tol.elements().len() > 0);
@@ -797,7 +773,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 50.0, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 50.0, None, None, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
