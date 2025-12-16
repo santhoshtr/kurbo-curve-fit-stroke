@@ -483,8 +483,10 @@ class CurveFitterDemo {
       options.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
-      strokeOptions.set_width(this.params.strokeWidth);
-
+      const strokeWidths = this.points.map((p, i) => {
+        return this.params.strokeWidth;
+      });
+      strokeOptions.set_widths(strokeWidths);
       if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
       else if (this.params.strokeCap === "square")
         strokeOptions.set_cap_square();
@@ -607,7 +609,7 @@ class CurveFitterDemo {
         endScreen.y,
       );
     }
-
+    ctx.closePath();
     ctx.fill();
     ctx.stroke();
   }
@@ -811,7 +813,10 @@ class CurveFitterDemo {
       curveOptions.set_cyclic(this.params.cyclic);
 
       const strokeOptions = new StrokeOptions();
-      strokeOptions.set_width(this.params.strokeWidth);
+      const strokeWidths = this.points.map((p, i) => {
+        return this.params.strokeWidth + i;
+      });
+      strokeOptions.set_widths(strokeWidths);
 
       if (this.params.strokeCap === "butt") strokeOptions.set_cap_butt();
       else if (this.params.strokeCap === "square")

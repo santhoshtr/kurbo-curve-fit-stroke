@@ -1,4 +1,4 @@
-use curve_fitter::{CurveFitter, InputPoint, PointType};
+use curve_fitter::{CurveFitter, InputPoint, PointType, var_stroker::VariableStroker};
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
 
@@ -103,9 +103,10 @@ impl CurveFitterOptions {
 
 #[wasm_bindgen]
 pub struct StrokeOptions {
-    width: f64,
+    widths: Vec<f64>,
     cap: Cap,
     join: Join,
+    tolerance: f64,
 }
 
 #[wasm_bindgen]
@@ -113,15 +114,26 @@ impl StrokeOptions {
     #[wasm_bindgen(constructor)]
     pub fn new() -> StrokeOptions {
         StrokeOptions {
-            width: 3.0,
+            widths: vec![3.0],
             cap: Cap::Round,
             join: Join::Round,
+            tolerance: 0.25,
         }
     }
 
     #[wasm_bindgen]
     pub fn set_width(&mut self, width: f64) {
-        self.width = width;
+        self.widths = vec![width];
+    }
+
+    #[wasm_bindgen]
+    pub fn set_widths(&mut self, widths: Vec<f64>) {
+        self.widths = widths;
+    }
+
+    #[wasm_bindgen]
+    pub fn set_tolerance(&mut self, tolerance: f64) {
+        self.tolerance = tolerance;
     }
 
     #[wasm_bindgen]
@@ -327,11 +339,31 @@ pub fn fit_curve_with_stroke(
 
     match fitter.fit_curve(input_points, curve_options.cyclic) {
         Ok(bez_path) => {
-            let style = Stroke::new(stroke_options.width)
-                .with_caps(stroke_options.cap)
-                .with_join(stroke_options.join);
-            let tolerance = 0.25;
-            let stroked = stroke(bez_path, &style, &StrokeOpts::default(), tolerance);
+            let widths = &stroke_options.widths;
+
+            if widths.is_empty() {
+                console_log!("Error: No widths provided for stroke");
+                return Vec::new();
+            }
+
+            let all_same =
+                widths.len() == 1 || widths.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-10);
+
+            let stroked = if all_same {
+                let style = Stroke::new(widths[0])
+                    .with_caps(stroke_options.cap)
+                    .with_join(stroke_options.join);
+                stroke(
+                    bez_path,
+                    &style,
+                    &StrokeOpts::default(),
+                    stroke_options.tolerance,
+                )
+            } else {
+                let stroker = VariableStroker::new(stroke_options.tolerance);
+                stroker.stroke(&bez_path, widths)
+            };
+
             bez_path_to_segments(&stroked)
         }
         Err(e) => {
@@ -396,11 +428,31 @@ pub fn curve_to_svg_path_with_stroke(
     match fitter.fit_curve(input_points, curve_options.cyclic) {
         Ok(bez_path) => {
             if use_stroke {
-                let style = Stroke::new(stroke_options.width)
-                    .with_caps(stroke_options.cap)
-                    .with_join(stroke_options.join);
-                let tolerance = 0.25;
-                let stroked = stroke(bez_path, &style, &StrokeOpts::default(), tolerance);
+                let widths = &stroke_options.widths;
+
+                if widths.is_empty() {
+                    console_log!("Error: No widths provided for stroke");
+                    return String::new();
+                }
+
+                let all_same =
+                    widths.len() == 1 || widths.windows(2).all(|w| (w[0] - w[1]).abs() < 1e-10);
+
+                let stroked = if all_same {
+                    let style = Stroke::new(widths[0])
+                        .with_caps(stroke_options.cap)
+                        .with_join(stroke_options.join);
+                    stroke(
+                        bez_path,
+                        &style,
+                        &StrokeOpts::default(),
+                        stroke_options.tolerance,
+                    )
+                } else {
+                    let stroker = VariableStroker::new(stroke_options.tolerance);
+                    stroker.stroke(&bez_path, widths)
+                };
+
                 stroked.to_svg()
             } else {
                 bez_path.to_svg()
