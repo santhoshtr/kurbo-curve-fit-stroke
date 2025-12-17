@@ -328,10 +328,7 @@ class CurveFitterDemo {
 
     if (this.selectedPointIndex !== -1 && (e.key === "-" || e.key === "_")) {
       this.ensurePointOffsetsInitialized();
-      this.params.pointOffsets[this.selectedPointIndex] = Math.max(
-        1,
-        this.params.pointOffsets[this.selectedPointIndex] - 1,
-      );
+      this.params.pointOffsets[this.selectedPointIndex] -= 1;
       this.updateDisplay();
       e.preventDefault();
       return;
