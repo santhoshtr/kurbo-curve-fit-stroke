@@ -6,7 +6,11 @@ use crate::two_param_curve::TwoParamCurve;
 pub mod spline;
 pub mod two_param_curve;
 pub mod two_param_spline;
+pub mod var_interpolatable_offset;
+pub mod var_interpolatable_stroke;
+pub mod var_interpolatable_stroker;
 pub mod var_offset;
+pub mod var_stroke;
 pub mod var_stroker;
 
 #[derive(Debug, Clone)]
