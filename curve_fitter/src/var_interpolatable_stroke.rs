@@ -144,9 +144,6 @@ impl VariableInterpolatableStrokeCtx {
     }
 
     pub fn do_cubic(&mut self, c: CubicBez, w0: f64, w1: f64, tolerance: f64) {
-        // Note: For degenerate checking (collinear points), you can add the logic here
-        // calling a modified do_linear that accepts w0/w1.
-
         // 1. Forward Path (Right Side in Kurbo convention -> negative width offset)
         // We use -0.5 * width.
         // offset_cubic_variable must be imported
@@ -160,7 +157,7 @@ impl VariableInterpolatableStrokeCtx {
 
         // The first point of result_path is the "MoveTo" which corresponds to the
         // end of the join. We usually want to connect to it.
-        // However, standard Kurbo usually skips the first point assuming it matches.
+        // However, Kurbo usually skips the first point assuming it matches.
         // In variable width, exact matches are guaranteed by the math.
         self.forward_path.extend(self.result_path.iter().skip(1));
 

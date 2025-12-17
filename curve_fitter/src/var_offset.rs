@@ -73,14 +73,12 @@ pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, tolerance: f64, resu
     // Regularization tuning
     const DIM_TUNE: f64 = 0.25;
     result.truncate(0);
-    // We regularize using the maximum width to be safe against cusps
-    let _max_w = if w0.abs() > w1.abs() { w0 } else { w1 };
+
     let c_regularized = c.regularize_cusp(tolerance * DIM_TUNE);
 
     let co = VariableCubicOffset::new(c_regularized, w0, w1, tolerance);
 
     let (tan0, tan1) = tangents(&PathSeg::Cubic(c));
-    // Use override if provided, otherwise derive from source
     let utan0 = tan0.normalize();
     let utan1 = tan1.normalize();
 
@@ -98,11 +96,11 @@ impl VariableCubicOffset {
     fn new(c: CubicBez, w0: f64, w1: f64, tolerance: f64) -> Self {
         let q = c.deriv();
         // Calculate curvature cross-product factors (unscaled by width)
-        // The factor 2.0 comes from the second derivative of cubic
         let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
         let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
         let p2xp1 = q.p2.to_vec2().cross(q.p1.to_vec2());
 
+        // The factor 2.0 comes from the second derivative of cubic
         VariableCubicOffset {
             c,
             q,
@@ -117,14 +115,14 @@ impl VariableCubicOffset {
 
     /// Get the width at a specific t value.
     #[inline]
-    fn width(&self, t: f64) -> f64 {
+    fn width_at_t(&self, t: f64) -> f64 {
         self.w0 + (self.w1 - self.w0) * t
     }
 
     fn cusp_sign(&self, t: f64) -> f64 {
         let ds2 = self.q.eval(t).to_vec2().hypot2();
         let curvature_factor = (self.k2 * t + self.k1) * t + self.k0;
-        let w = self.width(t);
+        let w = self.width_at_t(t);
         // curvature * width + 1
         (curvature_factor * w) / (ds2 * ds2.sqrt()) + 1.0
     }
@@ -138,7 +136,7 @@ impl VariableCubicOffset {
     }
 
     fn offset_rec(&self, rec: &OffsetRec, result: &mut BezPath) {
-        // Cusp detection logic remains mostly the same, but using dynamic width
+        // Cusp detection logic remains mostly the same as constant width offset, but using dynamic width
         if rec.cusp0 * rec.cusp1 < 0.0 {
             let a = rec.t0;
             let b = rec.t1;
@@ -223,8 +221,8 @@ impl VariableCubicOffset {
     fn apply(&self, rec: &OffsetRec, a: f64, b: f64) -> CubicBez {
         let s = (1. / 3.) * (rec.t1 - rec.t0);
 
-        let w_start = self.width(rec.t0);
-        let w_end = self.width(rec.t1);
+        let w_start = self.width_at_t(rec.t0);
+        let w_end = self.width_at_t(rec.t1);
 
         let p0 = self.c.eval(rec.t0) + w_start * rec.utan0.turn_90();
         // l0 is the handle length.
@@ -276,7 +274,7 @@ impl VariableCubicOffset {
             unorms[i] = unorm;
 
             // Critical change: Compare against source + variable width(t)
-            let w_t = self.width(t);
+            let w_t = self.width_at_t(t);
             let p_new = self.c.eval(t) + w_t * unorm;
 
             let err_vec = pa - p_new;
@@ -319,7 +317,7 @@ impl VariableCubicOffset {
 
         // Critical change: Inverse determinant scaling.
         // Original used `self.d`. We use average width of the segment for stability.
-        let w_avg = (self.width(rec.t0) + self.width(rec.t1)) * 0.5;
+        let w_avg = (self.width_at_t(rec.t0) + self.width_at_t(rec.t1)) * 0.5;
         // Avoid division by zero if width is 0
         let scale = if w_avg.abs() < 1e-9 { 1.0 } else { w_avg };
 
@@ -556,6 +554,7 @@ impl NewTrait for CubicBez {
         None
     }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,9 +655,9 @@ mod tests {
         let offset = VariableCubicOffset::new(c, 10.0, 20.0, 0.1);
 
         // Test width interpolation
-        assert!((offset.width(0.0) - 10.0).abs() < 1e-10);
-        assert!((offset.width(1.0) - 20.0).abs() < 1e-10);
-        assert!((offset.width(0.5) - 15.0).abs() < 1e-10);
+        assert!((offset.width_at_t(0.0) - 10.0).abs() < 1e-10);
+        assert!((offset.width_at_t(1.0) - 20.0).abs() < 1e-10);
+        assert!((offset.width_at_t(0.5) - 15.0).abs() < 1e-10);
     }
 
     #[test]

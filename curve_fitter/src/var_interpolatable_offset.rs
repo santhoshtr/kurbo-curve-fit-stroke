@@ -11,12 +11,6 @@ struct VariableInterpolatableCubicOffset {
     w0: f64,
     /// End width (at t=1)
     w1: f64,
-    // Curvature factors (unscaled by width)
-    // k0 + k1 t + k2 t^2 is the cross product of second and first derivatives.
-    k0: f64,
-    k1: f64,
-    k2: f64,
-
     tolerance: f64,
 }
 
@@ -128,28 +122,19 @@ pub fn offset_cubic_interpolatable_variable(
 
 impl VariableInterpolatableCubicOffset {
     fn new(c: CubicBez, w0: f64, w1: f64, tolerance: f64) -> Self {
-        let q = c.deriv();
-        // Calculate curvature cross-product factors (unscaled by width)
         // The factor 2.0 comes from the second derivative of cubic
-        let p1xp0 = q.p1.to_vec2().cross(q.p0.to_vec2());
-        let p2xp0 = q.p2.to_vec2().cross(q.p0.to_vec2());
-        let p2xp1 = q.p2.to_vec2().cross(q.p1.to_vec2());
-
         VariableInterpolatableCubicOffset {
             c,
-            q,
+            q: c.deriv(),
             w0,
             w1,
-            k0: 2.0 * p1xp0,
-            k1: 2.0 * (p2xp0 - 2.0 * p1xp0),
-            k2: 2.0 * (p2xp1 - p2xp0 + p1xp0),
             tolerance,
         }
     }
 
     /// Get the width at a specific t value.
     #[inline]
-    fn width(&self, t: f64) -> f64 {
+    fn width_at_t(&self, t: f64) -> f64 {
         self.w0 + (self.w1 - self.w0) * t
     }
 
@@ -199,8 +184,8 @@ impl VariableInterpolatableCubicOffset {
         let n1 = utan1.turn_90();
 
         // 2. Calculate Exact Offset Points (On-Curve)
-        let w_start = self.width(t0);
-        let w_end = self.width(t1);
+        let w_start = self.width_at_t(t0);
+        let w_end = self.width_at_t(t1);
 
         let p0 = p0_src + w_start * n0;
         let p3 = p3_src + w_end * n1;
