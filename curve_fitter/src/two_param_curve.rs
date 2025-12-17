@@ -49,6 +49,12 @@ impl CubicBezExt for CubicBez {
 
 pub struct TwoParamCurve;
 
+impl Default for TwoParamCurve {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TwoParamCurve {
     pub fn new() -> Self {
         Self
@@ -123,9 +129,9 @@ impl TwoParamCurve {
 
         // Compute scale factor based on curvature ratio
         // TODO: fine tune this formula
-        let scale = 1.0 / (2.0 + ratio);
+        
 
-        scale
+        1.0 / (2.0 + ratio)
     }
 
     /// Compute curvature at endpoints

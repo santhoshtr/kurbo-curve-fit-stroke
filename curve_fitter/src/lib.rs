@@ -68,6 +68,12 @@ pub struct CurveFitter {
     curve: TwoParamCurve,
 }
 
+impl Default for CurveFitter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CurveFitter {
     pub fn new() -> Self {
         Self {

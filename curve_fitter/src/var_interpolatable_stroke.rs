@@ -2,59 +2,9 @@ use std::f64::consts::PI;
 
 use kurbo::{Affine, Arc, BezPath, Cap, CubicBez, Join, PathEl, Point, Vec2};
 
-use crate::var_interpolatable_offset::offset_cubic_interpolatable_variable;
-
-#[derive(Clone, Debug, PartialEq)]
-pub struct VariableStroke {
-    pub join: Join,
-    pub miter_limit: f64,
-    pub start_cap: Cap,
-    pub end_cap: Cap,
-}
-
-impl Default for VariableStroke {
-    fn default() -> Self {
-        Self {
-            join: Join::Round,
-            miter_limit: 4.0,
-            start_cap: Cap::Round,
-            end_cap: Cap::Round,
-        }
-    }
-}
-
-impl VariableStroke {
-    /// Builder method for setting the join style.
-    pub fn with_join(mut self, join: Join) -> Self {
-        self.join = join;
-        self
-    }
-
-    /// Builder method for setting the limit for miter joins.
-    pub fn with_miter_limit(mut self, limit: f64) -> Self {
-        self.miter_limit = limit;
-        self
-    }
-
-    /// Builder method for setting the cap style for the start of the stroke.
-    pub fn with_start_cap(mut self, cap: Cap) -> Self {
-        self.start_cap = cap;
-        self
-    }
-
-    /// Builder method for setting the cap style for the end of the stroke.
-    pub fn with_end_cap(mut self, cap: Cap) -> Self {
-        self.end_cap = cap;
-        self
-    }
-
-    /// Builder method for setting the cap style.
-    pub fn with_caps(mut self, cap: Cap) -> Self {
-        self.start_cap = cap;
-        self.end_cap = cap;
-        self
-    }
-}
+use crate::{
+    var_interpolatable_offset::offset_cubic_interpolatable_variable, var_stroke::VariableStroke,
+};
 
 // We reuse the StrokeCtx almost exactly, but we need to track the start_width
 // to handle ClosePath correctly.
@@ -97,9 +47,7 @@ impl VariableInterpolatableStrokeCtx {
     }
 
     // Modified to accept `width` for the specific join
-    pub fn do_join(&mut self, style: &VariableStroke, tan0: Vec2, width: f64) {
-        let tolerance = 1e-3; // Should be passed in
-
+    pub fn do_join(&mut self, style: &VariableStroke, tan0: Vec2, width: f64, tolerance: f64) {
         // Calculate join threshold dynamically for this width
         let join_thresh = if width > 1e-6 {
             2.0 * tolerance / width
@@ -181,7 +129,7 @@ impl VariableInterpolatableStrokeCtx {
         }
     }
 
-    pub fn do_line(&mut self, tangent: Vec2, p1: Point, w0: f64, w1: f64) {
+    pub fn do_line(&mut self, tangent: Vec2, p1: Point, _w0: f64, w1: f64) {
         // Calculate norm at the end (using w1)
         // The start of this segment was already handled by do_join (using w0)
         let scale = 0.5 * w1 / tangent.hypot();
@@ -195,14 +143,7 @@ impl VariableInterpolatableStrokeCtx {
         self.last_pt = p1;
     }
 
-    pub fn do_cubic(
-        &mut self,
-        c: CubicBez,
-        w0: f64,
-        w1: f64,
-        sub_divisions: usize,
-        tolerance: f64,
-    ) {
+    pub fn do_cubic(&mut self, c: CubicBez, w0: f64, w1: f64, tolerance: f64) {
         // Note: For degenerate checking (collinear points), you can add the logic here
         // calling a modified do_linear that accepts w0/w1.
 
@@ -213,9 +154,6 @@ impl VariableInterpolatableStrokeCtx {
             c,
             -0.5 * w0,
             -0.5 * w1,
-            None,
-            None, // Tangent overrides (optional)
-            sub_divisions,
             tolerance,
             &mut self.result_path,
         );
@@ -231,9 +169,6 @@ impl VariableInterpolatableStrokeCtx {
             c,
             0.5 * w0,
             0.5 * w1,
-            None,
-            None,
-            sub_divisions,
             tolerance,
             &mut self.result_path,
         );
@@ -244,12 +179,10 @@ impl VariableInterpolatableStrokeCtx {
 
     // Reuse finish() and finish_closed() from original code
     // They work perfectly because they operate on the accumulated forward/backward paths.
-    pub fn finish(&mut self, style: &VariableStroke) {
+    pub fn finish(&mut self, style: &VariableStroke, tolerance: f64) {
         if self.forward_path.is_empty() {
             return;
         }
-
-        let tolerance = 1e-3; // Or passed in context
 
         self.output.extend(&self.forward_path);
 
@@ -279,13 +212,13 @@ impl VariableInterpolatableStrokeCtx {
         self.backward_path.truncate(0);
     }
 
-    pub fn finish_closed(&mut self, style: &VariableStroke) {
+    pub fn finish_closed(&mut self, style: &VariableStroke, tolerance: f64) {
         if self.forward_path.is_empty() {
             return;
         }
 
         // Join the end to the start
-        self.do_join(style, self.start_tan, self.start_width);
+        self.do_join(style, self.start_tan, self.start_width, tolerance);
 
         self.output.extend(&self.forward_path);
         self.output.close_path();

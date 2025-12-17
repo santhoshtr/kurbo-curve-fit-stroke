@@ -181,7 +181,7 @@ impl VariableStrokeCtx {
         }
     }
 
-    pub fn do_line(&mut self, tangent: Vec2, p1: Point, w0: f64, w1: f64) {
+    pub fn do_line(&mut self, tangent: Vec2, p1: Point, _w0: f64, w1: f64) {
         // Calculate norm at the end (using w1)
         // The start of this segment was already handled by do_join (using w0)
         let scale = 0.5 * w1 / tangent.hypot();
@@ -202,15 +202,7 @@ impl VariableStrokeCtx {
         // 1. Forward Path (Right Side in Kurbo convention -> negative width offset)
         // We use -0.5 * width.
         // offset_cubic_variable must be imported
-        offset_cubic_variable(
-            c,
-            -0.5 * w0,
-            -0.5 * w1,
-            None,
-            None, // Tangent overrides (optional)
-            tolerance,
-            &mut self.result_path,
-        );
+        offset_cubic_variable(c, -0.5 * w0, -0.5 * w1, tolerance, &mut self.result_path);
 
         // The first point of result_path is the "MoveTo" which corresponds to the
         // end of the join. We usually want to connect to it.
@@ -219,15 +211,7 @@ impl VariableStrokeCtx {
         self.forward_path.extend(self.result_path.iter().skip(1));
 
         // 2. Backward Path (Left Side -> positive width offset)
-        offset_cubic_variable(
-            c,
-            0.5 * w0,
-            0.5 * w1,
-            None,
-            None,
-            tolerance,
-            &mut self.result_path,
-        );
+        offset_cubic_variable(c, 0.5 * w0, 0.5 * w1, tolerance, &mut self.result_path);
         self.backward_path.extend(self.result_path.iter().skip(1));
 
         self.last_pt = c.p3;

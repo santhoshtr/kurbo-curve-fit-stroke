@@ -1,27 +1,17 @@
-use kurbo::{BezPath, CubicBez, PathEl, PathSeg, Point, QuadBez, Shape};
+use kurbo::{BezPath, CubicBez, PathEl, PathSeg, QuadBez};
 
 use crate::{
-    tangents,
-    var_offset::offset_cubic_variable,
-    var_stroke::{VariableStroke, VariableStrokeCtx},
+    tangents, var_interpolatable_stroke::VariableInterpolatableStrokeCtx,
+    var_stroke::VariableStroke,
 };
 
 pub struct VariableInterpolatableStroker {
     pub tolerance: f64,
-    /// Number of binary subdivisions per cubic segment.
-    /// 0 = 1 output seg per input.
-    /// 1 = 2 output segs per input.
-    /// 2 = 4 output segs per input.
-    /// Recommended: 2 for high quality, 1 for efficiency.
-    pub subdivisions: usize,
 }
 
 impl VariableInterpolatableStroker {
-    pub fn new(subdivisions: usize, tolerance: f64) -> Self {
-        Self {
-            subdivisions,
-            tolerance,
-        }
+    pub fn new(tolerance: f64) -> Self {
+        Self { tolerance }
     }
 
     /// Stroke a path with variable widths.
@@ -32,7 +22,7 @@ impl VariableInterpolatableStroker {
         widths: &[f64],
         style: &VariableStroke,
     ) -> BezPath {
-        let mut ctx = VariableStrokeCtx::default();
+        let mut ctx = VariableInterpolatableStrokeCtx::default();
 
         // Heuristic for join threshold based on average width (safety fallback)
         // Real threshold calc happens per-join now since width changes.
@@ -46,7 +36,7 @@ impl VariableInterpolatableStroker {
 
             match el {
                 PathEl::MoveTo(p) => {
-                    ctx.finish(style);
+                    ctx.finish(style, self.tolerance);
                     let w = *width_iter.next().unwrap_or(&1.0);
 
                     ctx.start_pt = p;
@@ -60,7 +50,7 @@ impl VariableInterpolatableStroker {
                         let tangent = p1 - p0;
 
                         // Join at P0 using W0
-                        ctx.do_join(style, tangent, w0);
+                        ctx.do_join(style, tangent, w0, self.tolerance);
 
                         ctx.last_tan = tangent;
                         ctx.do_line(tangent, p1, w0, w1);
@@ -73,7 +63,7 @@ impl VariableInterpolatableStroker {
                         let q = QuadBez::new(p0, p1, p2);
                         let (tan0, tan1) = tangents(&PathSeg::Quad(q));
 
-                        ctx.do_join(style, tan0, w0);
+                        ctx.do_join(style, tan0, w0, self.tolerance);
 
                         // Convert Quad to Cubic for variable offset
                         ctx.do_cubic(q.raise(), w0, w1, self.tolerance);
@@ -88,7 +78,7 @@ impl VariableInterpolatableStroker {
                         let c = CubicBez::new(p0, p1, p2, p3);
                         let (tan0, tan1) = tangents(&PathSeg::Cubic(c));
 
-                        ctx.do_join(style, tan0, w0);
+                        ctx.do_join(style, tan0, w0, self.tolerance);
 
                         ctx.do_cubic(c, w0, w1, self.tolerance);
 
@@ -101,15 +91,15 @@ impl VariableInterpolatableStroker {
                         let w_end = ctx.start_width;
                         let tangent = ctx.start_pt - p0;
 
-                        ctx.do_join(style, tangent, w0);
+                        ctx.do_join(style, tangent, w0, self.tolerance);
                         ctx.last_tan = tangent;
                         ctx.do_line(tangent, ctx.start_pt, w0, w_end);
                     }
-                    ctx.finish_closed(style);
+                    ctx.finish_closed(style, self.tolerance);
                 }
             }
         }
-        ctx.finish(style);
+        ctx.finish(style, self.tolerance);
         ctx.output
     }
 }

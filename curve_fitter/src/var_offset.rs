@@ -69,30 +69,20 @@ struct SubdivisionPoint {
 /// * `w1`: The offset distance at t=1.
 ///
 /// Width is interpolated linearly with t between w0 and w1.
-pub fn offset_cubic_variable(
-    c: CubicBez,
-    w0: f64,
-    w1: f64,
-
-    // Optional locked tangents (normalized)
-    tan0_override: Option<Vec2>,
-    tan1_override: Option<Vec2>,
-    tolerance: f64,
-    result: &mut BezPath,
-) {
+pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, tolerance: f64, result: &mut BezPath) {
     // Regularization tuning
     const DIM_TUNE: f64 = 0.25;
     result.truncate(0);
     // We regularize using the maximum width to be safe against cusps
-    let max_w = if w0.abs() > w1.abs() { w0 } else { w1 };
+    let _max_w = if w0.abs() > w1.abs() { w0 } else { w1 };
     let c_regularized = c.regularize_cusp(tolerance * DIM_TUNE);
 
     let co = VariableCubicOffset::new(c_regularized, w0, w1, tolerance);
 
     let (tan0, tan1) = tangents(&PathSeg::Cubic(c));
     // Use override if provided, otherwise derive from source
-    let utan0 = tan0_override.unwrap_or_else(|| tan0.normalize());
-    let utan1 = tan1_override.unwrap_or_else(|| tan1.normalize());
+    let utan0 = tan0.normalize();
+    let utan1 = tan1.normalize();
 
     let cusp0 = co.endpoint_cusp(co.q.p0, co.k0, w0);
     let cusp1 = co.endpoint_cusp(co.q.p2, co.k0 + co.k1 + co.k2, w1);
@@ -581,7 +571,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 5.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 5.0, 0.1, &mut result);
 
         println!("SVG path: {}", result.to_svg());
         // Should produce a path with at least one element
@@ -599,7 +589,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 10.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 10.0, 0.1, &mut result);
 
         println!("SVG path: {}", result.to_svg());
         // Should produce a path
@@ -617,7 +607,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 10.0, 12.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 10.0, 12.0, 0.1, &mut result);
         println!("{}", result.to_svg());
         assert!(result.elements().len() > 0);
     }
@@ -633,7 +623,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, -5.0, -5.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, -5.0, -5.0, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -649,7 +639,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 0.0, 10.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 0.0, 10.0, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -716,7 +706,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 8.0, 12.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 8.0, 12.0, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }
@@ -732,10 +722,10 @@ mod tests {
 
         // Test with different tolerances
         let mut result_low_tol = BezPath::new();
-        offset_cubic_variable(c, 10.0, 10.0, None, None, 0.01, &mut result_low_tol);
+        offset_cubic_variable(c, 10.0, 10.0, 0.01, &mut result_low_tol);
 
         let mut result_high_tol = BezPath::new();
-        offset_cubic_variable(c, 10.0, 10.0, None, None, 1.0, &mut result_high_tol);
+        offset_cubic_variable(c, 10.0, 10.0, 1.0, &mut result_high_tol);
 
         // Both should produce valid paths
         assert!(result_low_tol.elements().len() > 0);
@@ -773,7 +763,7 @@ mod tests {
         );
 
         let mut result = BezPath::new();
-        offset_cubic_variable(c, 5.0, 50.0, None, None, 0.1, &mut result);
+        offset_cubic_variable(c, 5.0, 50.0, 0.1, &mut result);
 
         assert!(result.elements().len() > 0);
     }

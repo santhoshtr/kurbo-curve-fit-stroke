@@ -2,7 +2,6 @@ use kurbo::{BezPath, CubicBez, PathEl, PathSeg, Point, QuadBez, Shape};
 
 use crate::{
     tangents,
-    var_offset::offset_cubic_variable,
     var_stroke::{VariableStroke, VariableStrokeCtx},
 };
 
