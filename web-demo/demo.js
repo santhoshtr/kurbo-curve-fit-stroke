@@ -7,7 +7,7 @@ import init, {
   CurveFitterOptions,
   StrokeOptions,
   version,
-} from "./pkg/chi_web_demo.js";
+} from "./pkg/web_demo.js";
 
 // Import Tweakpane
 import { Pane } from "https://cdn.jsdelivr.net/npm/tweakpane@4.0.3/dist/tweakpane.min.js";
