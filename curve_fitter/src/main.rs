@@ -136,4 +136,13 @@ fn main() {
     let result_path = interpolatable_stroker.stroke(&o_path, &widths, &style);
     write_path_to_svg(&result_path, "curve-fit-o-interpolatable_stroke.svg");
     println!("Output has {} curve segments", count_points(&result_path));
+    // Just a line
+    let mut straight_line = BezPath::new();
+    straight_line.move_to((0., 0.));
+    straight_line.line_to((100., 100.));
+    straight_line.close_path();
+    let widths = vec![2.0, 10.0];
+    let stroker = VariableStroker::new(0.1);
+    let result_path = stroker.stroke(&straight_line, &widths, &style);
+    write_path_to_svg(&result_path, "line-outline.svg");
 }
