@@ -35,12 +35,57 @@ struct OffsetRec {
 }
 
 #[inline]
-fn angle_between(p0: &Vec2, p1: &Vec2) -> f64 {
-    let dy = p1.y - p0.y;
-    let dx = p1.x - p0.x;
+fn angle_between(v1: Vec2, v2: Vec2) -> f64 {
+    let dot = v1.dot(v2);
+    let cross = v1.cross(v2);
+    cross.atan2(dot)
+}
 
-    // atan2 returns the angle in radians between [-π, π]
-    dy.atan2(dx)
+/// Calculate subdivision depth (0, 1, or 2) based on the source curve's curvature.
+///
+/// This depends ONLY on the source geometry, ensuring that different stroke weights
+/// (which share the same source path) will produce compatible topologies.
+fn calculate_dynamic_depth(c: CubicBez) -> usize {
+    // 1. Get delta vectors
+    let d0 = c.p1 - c.p0;
+    let d1 = c.p2 - c.p1;
+    let d2 = c.p3 - c.p2;
+
+    // 2. Handle degenerate cases (coincidental points)
+    // If control points overlap, fallback to checking the next available vector
+    // or return a safe default (1).
+    let v0 = if d0.hypot2() > 1e-9 { d0 } else { d1 };
+    let v1 = if d1.hypot2() > 1e-9 {
+        d1
+    } else {
+        if d0.hypot2() > 1e-9 { d0 } else { d2 }
+    };
+    let v2 = if d2.hypot2() > 1e-9 { d2 } else { v1 };
+
+    // If the curve is essentially a point or a line, no subdivision needed.
+    if v0.hypot2() < 1e-9 || v2.hypot2() < 1e-9 {
+        return 0;
+    }
+
+    // 3. Calculate angles
+    // Angle between v0 and v1
+    let angle1 = angle_between(v0, v1).abs();
+    // Angle between v1 and v2
+    let angle2 = angle_between(v1, v2).abs();
+
+    // 4. Total geometric turn
+    let total_turn = angle1 + angle2;
+
+    // 5. Thresholds (in Radians)
+    // 60 degrees ~= 1.05 rad
+    // 120 degrees ~= 2.1 rad
+    if total_turn < 1.05 {
+        0
+    } else if total_turn < 2.1 {
+        1
+    } else {
+        2
+    }
 }
 
 /// Compute an approximate variable-width offset curve.
@@ -112,53 +157,13 @@ impl VariableInterpolatableCubicOffset {
     ///
     /// This depends ONLY on the source geometry, ensuring that different stroke weights
     /// (which share the same source path) will produce compatible topologies.
-    fn calculate_dynamic_depth(&self) -> usize {
-        let c: CubicBez = self.c;
-        // 1. Get delta vectors
-        let d0 = c.p1 - c.p0;
-        let d1 = c.p2 - c.p1;
-        let d2 = c.p3 - c.p2;
-
-        // 2. Handle degenerate cases (coincidental points)
-        // If control points overlap, fallback to checking the next available vector
-        // or return a safe default (1).
-        let v0 = if d0.hypot2() > 1e-9 { d0 } else { d1 };
-        let v1 = if d1.hypot2() > 1e-9 {
-            d1
-        } else {
-            if d0.hypot2() > 1e-9 { d0 } else { d2 }
-        };
-        let v2 = if d2.hypot2() > 1e-9 { d2 } else { v1 };
-
-        // If the curve is essentially a point or a line, no subdivision needed.
-        if v0.hypot2() < 1e-9 || v2.hypot2() < 1e-9 {
-            return 0;
-        }
-
-        // 3. Calculate angles
-        // Angle between v0 and v1
-        let angle1 = angle_between(&v0, &v1).abs();
-        // Angle between v1 and v2
-        let angle2 = angle_between(&v1, &v2).abs();
-
-        // 4. Total geometric turn
-        let total_turn = angle1 + angle2;
-
-        // 5. Thresholds (in Radians)
-        // 60 degrees ~= 1.05 rad
-        // 120 degrees ~= 2.1 rad
-        if total_turn < 1.05 {
-            0
-        } else if total_turn < 2.1 {
-            1
-        } else {
-            2
-        }
+    fn get_depth(&self) -> usize {
+        calculate_dynamic_depth(self.c)
     }
 
     /// Recursively split until we hit target depth, then generate a segment.
     fn recurse(&self, t0: f64, t1: f64, depth: usize, result: &mut BezPath) {
-        let target_depth = self.calculate_dynamic_depth();
+        let target_depth = self.get_depth();
         if depth < target_depth {
             // STRICT TOPOLOGY: Always split exactly in half.
             let mid = (t0 + t1) / 2.0;
@@ -241,5 +246,60 @@ impl VariableInterpolatableCubicOffset {
         let p2 = p3 - l1 * utan1;
 
         result.curve_to(p1, p2, p3);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kurbo::CubicBez;
+
+    #[test]
+    fn test_depth_straight_line() {
+        let c = CubicBez::new((0., 0.), (10., 0.), (20., 0.), (30., 0.));
+        assert_eq!(calculate_dynamic_depth(c), 0);
+    }
+
+    #[test]
+    fn test_depth_gentle_curve() {
+        // Turn is very small (< 10 degrees)
+        let c = CubicBez::new((0., 0.), (10., 1.), (20., 1.), (30., 0.));
+        assert_eq!(calculate_dynamic_depth(c), 0);
+    }
+
+    #[test]
+    fn test_depth_sharp_corner() {
+        // ~90 degree turn
+        let c = CubicBez::new((0., 0.), (10., 0.), (10., 10.), (10., 20.));
+        assert_eq!(calculate_dynamic_depth(c), 1);
+    }
+
+    #[test]
+    fn test_depth_aggressive_s_curve() {
+        // This was the failing test.
+        // The control polygon zig-zags significantly (~216 degrees total).
+        // It SHOULD be Depth 2.
+        let c = CubicBez::new((0.0, 0.0), (10.0, 10.0), (20.0, -10.0), (30.0, 0.0));
+        assert_eq!(calculate_dynamic_depth(c), 2);
+    }
+
+    #[test]
+    fn test_depth_gentle_s_curve() {
+        // A much gentler S-curve.
+        // P0->P1: Rise 3 over 10 (~16 deg)
+        // P1->P2: Fall 6 over 10 (~-31 deg) -> Turn ~47 deg
+        // P2->P3: Rise 3 over 10 (~16 deg)  -> Turn ~47 deg
+        // Total: ~94 degrees.
+        // Threshold is 60..120 -> Depth 1
+        let c = CubicBez::new((0.0, 0.0), (10.0, 3.0), (20.0, -3.0), (30.0, 0.0));
+        assert_eq!(calculate_dynamic_depth(c), 1);
+    }
+
+    #[test]
+    fn test_depth_degenerate_handles() {
+        // P0==P1, so we measure angle P1->P2 vs P2->P3
+        // 90 degree turn.
+        let c = CubicBez::new((0.0, 0.0), (0.0, 0.0), (10.0, 0.0), (10.0, 10.0));
+        assert_eq!(calculate_dynamic_depth(c), 1);
     }
 }
