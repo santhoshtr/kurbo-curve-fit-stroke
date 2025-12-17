@@ -82,7 +82,7 @@ pub fn offset_cubic_variable(
 ) {
     // Regularization tuning
     const DIM_TUNE: f64 = 0.25;
-
+    result.truncate(0);
     // We regularize using the maximum width to be safe against cusps
     let max_w = if w0.abs() > w1.abs() { w0 } else { w1 };
     let c_regularized = c.regularize_cusp(tolerance * DIM_TUNE);
