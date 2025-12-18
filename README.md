@@ -16,16 +16,16 @@ This Rust port is licensed under MIT
 
 ## Variable Stroker
 
-Kurbo libray has stroke algorithm to expand a path(skeleton or a list of
+Kurbo library has stroke algorithm to expand a path (skeleton or a list of
 connected Cubic curves) with a given offset `d`. It works well and based on extensive
 research by Kurbo team.
 
-![](./docs/images/const-stroke.web)
+![](./docs/images/const-stroke.webp)
 
-I adapted it the system to try variable stroke where the value of `d` varies at curve joints.
-This is useful in illustrating a variable thickness letter thickness. It reuses most of the
+I adapted the system to try variable stroke where the value of `d` varies at curve joints.
+This is useful in illustrating variable thickness letters. It reuses most of the
 code from Kurbo library. Wherever the constant value `d` is used, a value from array of varying
-widhts is supplied.
+widths is supplied.
 
 The resulting stroke outline is acceptable to eyes,
 but not great in terms of number of points in the outline.
@@ -40,7 +40,7 @@ Simplify APIs are not usable as they also add non-deterministic points.
 
 ## Interpolatable Variable Strokes
 
-A simple stupic trick I have used in this repo for achieving interpolation
+A simple stupid trick I have used in this repo for achieving interpolation
 is to make the sub-divisions of the outline
 for a path segment deterministic. Initially I used 4 sub-divisions for every path segment.
 But later changed it to dynamic based on the curvature of source path.
