@@ -47,8 +47,6 @@ The resulting curves are interpolatable but lost the perfectness from the previo
 where the stroke calculation was based on complex error reduction strategy. My approach reduced that to
 simpler Tiller-Hanson-ish approach
 
-![](./docs/images/variable-stroke-interpolatable.webp)
-
 When I shared this work with Kurbo team, Raph suggested using a Linear Perturbation system
 
 $B_{offset}(t) = B(t) + c \cdot D(t)$
@@ -94,3 +92,7 @@ $$ \text{Tangent}_{offset} = \underbrace{(1 + \kappa d)x'}_{\text{Part A}} + \un
 *   **$d'$**: The **Derivative of Width** (The slope). How fast is the width changing?
 
 If the pen is getting wider ($d' > 0$), the edge of the ink must move **outwards** away from the center. This adds a sideways vector component.
+
+
+![](./docs/images/variable-stroke-interpolatable.webp)
+
