@@ -1,6 +1,5 @@
 use curve_fitter::{
-    CurveFitter, InputPoint, PointType, var_interpolatable_stroker::VariableInterpolatableStroker,
-    var_stroke::VariableStroke, var_stroker::VariableStroker,
+    CurveFitter, InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
@@ -172,7 +171,7 @@ impl StrokeOptions {
     }
 
     #[wasm_bindgen]
-    pub fn set_interpolatable(&mut self, interpolatable: bool) {
+    pub fn set(&mut self, interpolatable: bool) {
         self.interpolatable = interpolatable;
     }
 }
@@ -374,13 +373,8 @@ pub fn fit_curve_with_stroke(
                     .with_caps(stroke_options.cap)
                     .with_join(stroke_options.join);
 
-                if stroke_options.interpolatable == true {
-                    let stroker = VariableInterpolatableStroker::new(stroke_options.tolerance);
-                    stroker.stroke(&bez_path, widths, &style)
-                } else {
-                    let stroker = VariableStroker::new(stroke_options.tolerance);
-                    stroker.stroke(&bez_path, widths, &style)
-                }
+                let stroker = VariableStroker::new(stroke_options.tolerance);
+                stroker.stroke(&bez_path, widths, &style)
             };
 
             bez_path_to_segments(&stroked)
@@ -472,13 +466,8 @@ pub fn curve_to_svg_path_with_stroke(
                         .with_caps(stroke_options.cap)
                         .with_join(stroke_options.join);
 
-                    if stroke_options.interpolatable == true {
-                        let stroker = VariableInterpolatableStroker::new(stroke_options.tolerance);
-                        stroker.stroke(&bez_path, widths, &style)
-                    } else {
-                        let stroker = VariableStroker::new(stroke_options.tolerance);
-                        stroker.stroke(&bez_path, widths, &style)
-                    }
+                    let stroker = VariableStroker::new(stroke_options.tolerance);
+                    stroker.stroke(&bez_path, widths, &style)
                 };
 
                 stroked.to_svg()

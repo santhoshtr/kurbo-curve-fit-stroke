@@ -97,9 +97,7 @@ impl VariableStrokeCtx {
     }
 
     // Modified to accept `width` for the specific join
-    pub fn do_join(&mut self, style: &VariableStroke, tan0: Vec2, width: f64) {
-        let tolerance = 1e-3; // Should be passed in
-
+    pub fn do_join(&mut self, style: &VariableStroke, tan0: Vec2, width: f64, tolerance: f64) {
         // Calculate join threshold dynamically for this width
         let join_thresh = if width > 1e-6 {
             2.0 * tolerance / width
@@ -196,9 +194,6 @@ impl VariableStrokeCtx {
     }
 
     pub fn do_cubic(&mut self, c: CubicBez, w0: f64, w1: f64, tolerance: f64) {
-        // Note: For degenerate checking (collinear points), you can add the logic here
-        // calling a modified do_linear that accepts w0/w1.
-
         // 1. Forward Path (Right Side in Kurbo convention -> negative width offset)
         // We use -0.5 * width.
         // offset_cubic_variable must be imported
@@ -206,7 +201,7 @@ impl VariableStrokeCtx {
 
         // The first point of result_path is the "MoveTo" which corresponds to the
         // end of the join. We usually want to connect to it.
-        // However, standard Kurbo usually skips the first point assuming it matches.
+        // However, Kurbo usually skips the first point assuming it matches.
         // In variable width, exact matches are guaranteed by the math.
         self.forward_path.extend(self.result_path.iter().skip(1));
 
@@ -219,12 +214,10 @@ impl VariableStrokeCtx {
 
     // Reuse finish() and finish_closed() from original code
     // They work perfectly because they operate on the accumulated forward/backward paths.
-    pub fn finish(&mut self, style: &VariableStroke) {
+    pub fn finish(&mut self, style: &VariableStroke, tolerance: f64) {
         if self.forward_path.is_empty() {
             return;
         }
-
-        let tolerance = 1e-3; // Or passed in context
 
         self.output.extend(&self.forward_path);
 
@@ -254,13 +247,13 @@ impl VariableStrokeCtx {
         self.backward_path.truncate(0);
     }
 
-    pub fn finish_closed(&mut self, style: &VariableStroke) {
+    pub fn finish_closed(&mut self, style: &VariableStroke, tolerance: f64) {
         if self.forward_path.is_empty() {
             return;
         }
 
         // Join the end to the start
-        self.do_join(style, self.start_tan, self.start_width);
+        self.do_join(style, self.start_tan, self.start_width, tolerance);
 
         self.output.extend(&self.forward_path);
         self.output.close_path();

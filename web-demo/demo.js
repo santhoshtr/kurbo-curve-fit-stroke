@@ -30,7 +30,6 @@ class CurveFitterDemo {
       strokeCap: "round",
       strokeJoin: "round",
       tolerance: 0.1,
-      interpolatable: false,
       pointOffsets: [],
     };
 
@@ -134,12 +133,6 @@ class CurveFitterDemo {
         min: 1,
         max: 50,
         step: 0.5,
-      })
-      .on("change", () => this.updateDisplay());
-
-    strokeFolder
-      .addBinding(this.params, "interpolatable", {
-        label: "Interpolatable",
       })
       .on("change", () => this.updateDisplay());
 
@@ -557,7 +550,6 @@ class CurveFitterDemo {
 
       const strokeOptions = new StrokeOptions();
       strokeOptions.set_tolerance(this.params.tolerance);
-      strokeOptions.set_interpolatable(this.params.interpolatable);
 
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
@@ -906,7 +898,6 @@ class CurveFitterDemo {
 
       const strokeOptions = new StrokeOptions();
       strokeOptions.set_tolerance(this.params.tolerance);
-      strokeOptions.set_interpolatable(this.params.interpolatable);
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
         (v) => v + this.params.strokeWidth,

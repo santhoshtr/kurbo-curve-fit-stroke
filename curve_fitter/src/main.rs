@@ -1,6 +1,5 @@
 use curve_fitter::{
-    CurveFitter, InputPoint, PointType, var_interpolatable_stroker::VariableInterpolatableStroker,
-    var_stroke::VariableStroke, var_stroker::VariableStroker,
+    CurveFitter, InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{
     BezPath, PathEl,
@@ -89,10 +88,6 @@ fn main() {
             let result_path = stroke.stroke(&bez_path, &widths, &style);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
             println!("Output has {} curve segments", count_points(&result_path));
-            let interpolatable_stroke = VariableInterpolatableStroker::new(0.1);
-            let result_path = interpolatable_stroke.stroke(&bez_path, &widths, &style);
-            write_path_to_svg(&result_path, "curve-fit-var-interpolatable_stroke.svg");
-            println!("Output has {} curve segments", count_points(&result_path));
         }
         Err(e) => {
             println!("Error fitting curve: {}", e);
@@ -131,11 +126,6 @@ fn main() {
         "Simplified Output has {} curve segments",
         count_points(&simplified_path)
     );
-    let interpolatable_stroker = VariableInterpolatableStroker::new(0.1);
-
-    let result_path = interpolatable_stroker.stroke(&o_path, &widths, &style);
-    write_path_to_svg(&result_path, "curve-fit-o-interpolatable_stroke.svg");
-    println!("Output has {} curve segments", count_points(&result_path));
     // Just a line
     let mut straight_line = BezPath::new();
     straight_line.move_to((0., 0.));
