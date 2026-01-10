@@ -129,7 +129,6 @@ impl TwoParamCurve {
 
         // Compute scale factor based on curvature ratio
         // TODO: fine tune this formula
-        
 
         1.0 / (2.0 + ratio)
     }

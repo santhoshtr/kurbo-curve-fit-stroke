@@ -61,35 +61,17 @@ pub struct CurvatureResult {
     pub ak1: f64, // arctan curvature at end
 }
 
-pub struct CurveFitter {
-    curve: TwoParamCurve,
-}
-
-impl Default for CurveFitter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl CurveFitter {
-    pub fn new() -> Self {
-        Self {
-            curve: TwoParamCurve::new(),
-        }
-    }
-
-    pub fn fit_curve(&self, points: Vec<InputPoint>, is_closed: bool) -> Result<BezPath, String> {
-        let mut spline = Spline::new(points, is_closed);
-        spline.solve(&self.curve)?;
-        Ok(spline.render(&self.curve))
-    }
-}
-
 #[derive(Debug)]
 pub struct SegmentParams {
     pub th0: f64,
     pub th1: f64,
     pub chord: f64,
+}
+
+pub fn fit_curve(points: Vec<InputPoint>, is_closed: bool) -> Result<BezPath, String> {
+    let mut spline = Spline::new(points, is_closed);
+    spline.solve()?;
+    Ok(spline.render())
 }
 
 /// Normalize angle to -π..π range

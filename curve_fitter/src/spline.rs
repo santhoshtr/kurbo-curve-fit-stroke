@@ -22,7 +22,7 @@ impl Spline {
         }
     }
 
-    pub fn solve(&mut self, curve: &TwoParamCurve) -> Result<(), String> {
+    pub fn solve(&mut self) -> Result<(), String> {
         if self.ctrl_pts.len() < 2 {
             return Err("Need at least 2 points".to_string());
         }
@@ -120,8 +120,9 @@ impl Spline {
 
                 let n_iter = 10;
                 inner.initial_ths();
+                let curve = TwoParamCurve::new();
                 for k in 0..n_iter {
-                    let err = inner.iter_solver(k, curve);
+                    let err = inner.iter_solver(k, &curve);
                     if err < 1e-6 {
                         break;
                     }
@@ -149,7 +150,7 @@ impl Spline {
         Ok(())
     }
 
-    pub fn render(&self, curve: &TwoParamCurve) -> BezPath {
+    pub fn render(&self) -> BezPath {
         let mut path = BezPath::new();
         if self.ctrl_pts.is_empty() {
             return path;
@@ -176,6 +177,7 @@ impl Spline {
             let k0 = pt_i.k_blend.map(|k| k * chord);
             let k1 = pt_i1.k_blend.map(|k| k * chord);
 
+            let curve = TwoParamCurve::new();
             let render = curve.render(th0, th1, k0, k1);
             let mut control_points = Vec::new();
             for pt in render {
@@ -198,7 +200,7 @@ impl Spline {
         path
     }
 
-    /// Find starting index (mimics JS startIx method)
+    /// Find starting index
     fn start_ix(&self) -> usize {
         if !self.is_closed {
             return 0;
@@ -215,7 +217,7 @@ impl Spline {
         0
     }
 
-    /// Get point with wraparound (mimics JS pt method)
+    /// Get point with wraparound
     fn pt(&self, i: usize, start: usize) -> &ControlPoint {
         let length = self.ctrl_pts.len();
         let index = (i + start) % length;

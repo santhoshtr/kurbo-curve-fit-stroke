@@ -1,10 +1,7 @@
 use curve_fitter::{
-    CurveFitter, InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
+    InputPoint, PointType, fit_curve, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
-use kurbo::{
-    BezPath, PathEl,
-    simplify::{SimplifyOptLevel, SimplifyOptions, simplify_bezpath},
-};
+use kurbo::{BezPath, PathEl};
 use std::fs;
 
 fn write_path_to_svg(bez_path: &BezPath, output_file_name: &str) {
@@ -39,6 +36,71 @@ fn count_points(path: &BezPath) -> usize {
         .count()
 }
 
+fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
+    let mut refitted_input_points = Vec::new();
+    for el in stroke_path.iter() {
+        match el {
+            PathEl::MoveTo(p) => {
+                refitted_input_points.push(InputPoint {
+                    x: p.x,
+                    y: p.y,
+                    point_type: PointType::Smooth,
+                });
+            }
+            PathEl::LineTo(p) => {
+                refitted_input_points.push(InputPoint {
+                    x: p.x,
+                    y: p.y,
+                    point_type: PointType::Smooth,
+                });
+            }
+            PathEl::QuadTo(_, p2) => {
+                refitted_input_points.push(InputPoint {
+                    x: p2.x,
+                    y: p2.y,
+                    point_type: PointType::Smooth,
+                });
+            }
+            PathEl::CurveTo(_, _, p3) => {
+                refitted_input_points.push(InputPoint {
+                    x: p3.x,
+                    y: p3.y,
+                    point_type: PointType::Smooth,
+                });
+            }
+            PathEl::ClosePath => {
+                dbg!("close");
+            }
+        }
+    }
+
+    let mut deduped_points = Vec::new();
+    let epsilon = 1e-6;
+    for pt in refitted_input_points {
+        let is_duplicate = deduped_points.last().map_or_else(
+            || false,
+            |last: &InputPoint| (pt.x - last.x).abs() < epsilon && (pt.y - last.y).abs() < epsilon,
+        );
+        if !is_duplicate {
+            deduped_points.push(pt);
+        }
+    }
+    let refitted_input_points = deduped_points;
+
+    println!(
+        "Refitting {} on-curve points from result_path",
+        refitted_input_points.len()
+    );
+    for (i, pt) in refitted_input_points.iter().enumerate() {
+        println!(
+            "  [{}] InputPoint {{ x: {}, y: {}, point_type: {:?} }}",
+            i, pt.x, pt.y, pt.point_type
+        );
+    }
+
+    fit_curve(refitted_input_points, false)
+}
+
 fn main() {
     println!("Curve Fitting Demo");
 
@@ -66,10 +128,8 @@ fn main() {
         },
     ];
 
-    let fitter = CurveFitter::new();
-
     let style = VariableStroke::default();
-    match fitter.fit_curve(input_points, false) {
+    match fit_curve(input_points, false) {
         Ok(bez_path) => {
             println!("Successfully fitted curve!");
             println!(
@@ -88,6 +148,19 @@ fn main() {
             let result_path = stroke.stroke(&bez_path, &widths, &style);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
             println!("Output has {} curve segments", count_points(&result_path));
+            match refit_stroke(&result_path) {
+                Ok(refitted_bez_path) => {
+                    println!("Successfully refitted curve from result_path!");
+                    println!(
+                        "Refitted bezier path created with {} elements",
+                        refitted_bez_path.elements().len()
+                    );
+                    write_path_to_svg(&refitted_bez_path, "curve-fit-stroke-refitted.svg");
+                }
+                Err(e) => {
+                    println!("Error refitting curve: {}", e);
+                }
+            }
         }
         Err(e) => {
             println!("Error fitting curve: {}", e);
@@ -117,15 +190,23 @@ fn main() {
     let stroker = VariableStroker::new(0.1);
 
     let result_path = stroker.stroke(&o_path, &widths, &style);
-    let options = SimplifyOptions::default().opt_level(SimplifyOptLevel::Optimize);
-    let simplified_path = simplify_bezpath(&result_path, 0.1, &options);
     write_path_to_svg(&result_path, "curve-fit-o-stroke.svg");
     println!("Output has {} curve segments", count_points(&result_path));
-    write_path_to_svg(&simplified_path, "curve-fit-o-stroke-simplified.svg");
-    println!(
-        "Simplified Output has {} curve segments",
-        count_points(&simplified_path)
-    );
+
+    match refit_stroke(&result_path) {
+        Ok(refitted_bez_path) => {
+            println!("Successfully refitted curve from result_path!");
+            println!(
+                "Refitted bezier path created with {} elements",
+                refitted_bez_path.elements().len()
+            );
+            write_path_to_svg(&refitted_bez_path, "curve-fit-o-stroke-refitted.svg");
+        }
+        Err(e) => {
+            println!("Error refitting curve: {}", e);
+        }
+    }
+
     // Just a line
     let mut straight_line = BezPath::new();
     straight_line.move_to((0., 0.));
