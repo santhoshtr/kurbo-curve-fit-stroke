@@ -4,11 +4,15 @@ use std::f64::consts::PI;
 use crate::spline::Spline;
 use crate::two_param_curve::TwoParamCurve;
 pub mod spline;
+pub mod stroke_refitter;
 pub mod two_param_curve;
 pub mod two_param_spline;
 pub mod var_offset;
 pub mod var_stroke;
 pub mod var_stroker;
+
+// Re-export the main stroke refitter function
+pub use stroke_refitter::refit_stroke;
 
 #[derive(Debug, Clone)]
 pub struct InputPoint {

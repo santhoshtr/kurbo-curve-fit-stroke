@@ -1,5 +1,6 @@
 use curve_fitter::{
-    InputPoint, PointType, fit_curve, var_stroke::VariableStroke, var_stroker::VariableStroker,
+    InputPoint, PointType, fit_curve, refit_stroke, var_stroke::VariableStroke,
+    var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, PathEl};
 use std::fs;
@@ -34,79 +35,6 @@ fn count_points(path: &BezPath) -> usize {
             )
         })
         .count()
-}
-
-fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
-    let mut refitted_input_points = Vec::new();
-    for el in stroke_path.iter() {
-        match el {
-            PathEl::MoveTo(p) => {
-                refitted_input_points.push(InputPoint {
-                    x: p.x,
-                    y: p.y,
-                    point_type: PointType::Smooth,
-                    incoming_angle: None,
-                    outgoing_angle: None,
-                });
-            }
-            PathEl::LineTo(p) => {
-                refitted_input_points.push(InputPoint {
-                    x: p.x,
-                    y: p.y,
-                    point_type: PointType::Smooth,
-                    incoming_angle: None,
-                    outgoing_angle: None,
-                });
-            }
-            PathEl::QuadTo(_, p2) => {
-                refitted_input_points.push(InputPoint {
-                    x: p2.x,
-                    y: p2.y,
-                    point_type: PointType::Smooth,
-                    incoming_angle: None,
-                    outgoing_angle: None,
-                });
-            }
-            PathEl::CurveTo(_, _, p3) => {
-                refitted_input_points.push(InputPoint {
-                    x: p3.x,
-                    y: p3.y,
-                    point_type: PointType::Smooth,
-                    incoming_angle: None,
-                    outgoing_angle: None,
-                });
-            }
-            PathEl::ClosePath => {
-                dbg!("close");
-            }
-        }
-    }
-
-    let mut deduped_points = Vec::new();
-    let epsilon = 1e-6;
-    for pt in refitted_input_points {
-        let is_duplicate = deduped_points.last().map_or_else(
-            || false,
-            |last: &InputPoint| (pt.x - last.x).abs() < epsilon && (pt.y - last.y).abs() < epsilon,
-        );
-        if !is_duplicate {
-            deduped_points.push(pt);
-        }
-    }
-    let refitted_input_points = deduped_points;
-
-    println!(
-        "Refitting {} on-curve points from result_path",
-        refitted_input_points.len()
-    );
-    for (i, pt) in refitted_input_points.iter().enumerate() {
-        println!(
-            "  [{}] InputPoint {{ x: {}, y: {}, point_type: {:?} }}",
-            i, pt.x, pt.y, pt.point_type
-        );
-    }
-
-    fit_curve(refitted_input_points, false)
 }
 
 fn main() {
@@ -164,6 +92,20 @@ fn main() {
             let result_path = stroke.stroke(&bez_path, &widths, &style);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
             println!("Output has {} curve segments", count_points(&result_path));
+            println!("Stroke path elements:");
+            for (i, el) in result_path.iter().enumerate() {
+                match el {
+                    PathEl::MoveTo(p) => println!("  {}: MoveTo({:.2}, {:.2})", i, p.x, p.y),
+                    PathEl::LineTo(p) => println!("  {}: LineTo({:.2}, {:.2})", i, p.x, p.y),
+                    PathEl::CurveTo(_cp1, _cp2, p) => {
+                        println!("  {}: CurveTo(..., {:.2}, {:.2})", i, p.x, p.y)
+                    }
+                    PathEl::QuadTo(_cp, p) => {
+                        println!("  {}: QuadTo(..., {:.2}, {:.2})", i, p.x, p.y)
+                    }
+                    PathEl::ClosePath => println!("  {}: ClosePath", i),
+                }
+            }
             match refit_stroke(&result_path) {
                 Ok(refitted_bez_path) => {
                     println!("Successfully refitted curve from result_path!");
