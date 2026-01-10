@@ -1,5 +1,5 @@
 use curve_fitter::{
-    InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
+    InputPoint, PointType, refit_stroke, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
@@ -417,7 +417,23 @@ pub fn fit_curve_with_stroke(
                 stroker.stroke(&bez_path, widths, &style)
             };
 
-            bez_path_to_segments(&stroked)
+            // Refit the stroke outline to get cleaner curves
+            let final_path = match refit_stroke(&stroked) {
+                Ok(refitted) => {
+                    console_log!(
+                        "Stroke outline refitted: {} → {} elements",
+                        stroked.elements().len(),
+                        refitted.elements().len()
+                    );
+                    refitted
+                }
+                Err(e) => {
+                    console_log!("Warning: Failed to refit stroke ({}), using original", e);
+                    stroked
+                }
+            };
+
+            bez_path_to_segments(&final_path)
         }
         Err(e) => {
             console_log!("Error fitting curve with stroke: {}", e);
@@ -510,7 +526,21 @@ pub fn curve_to_svg_path_with_stroke(
                     stroker.stroke(&bez_path, widths, &style)
                 };
 
-                stroked.to_svg()
+                // Refit the stroke outline to get cleaner curves
+                match refit_stroke(&stroked) {
+                    Ok(refitted) => {
+                        console_log!(
+                            "Stroke outline refitted: {} → {} elements",
+                            stroked.elements().len(),
+                            refitted.elements().len()
+                        );
+                        refitted.to_svg()
+                    }
+                    Err(e) => {
+                        console_log!("Warning: Failed to refit stroke ({}), using original", e);
+                        stroked.to_svg()
+                    }
+                }
             } else {
                 bez_path.to_svg()
             }

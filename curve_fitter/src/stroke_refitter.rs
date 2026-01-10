@@ -8,6 +8,7 @@ use crate::{InputPoint, PointType, fit_curve};
 use kurbo::{BezPath, PathEl, Point, Vec2};
 
 const CORNER_THRESHOLD_DEGREES: f64 = 10.0;
+const G1_SMOOTH_THRESHOLD_DEGREES: f64 = 4.0;
 const DEDUP_EPSILON: f64 = 1e-6;
 const EPS: f64 = 1e-12;
 
@@ -66,6 +67,28 @@ fn normalize_angle_degrees(angle: f64) -> f64 {
 /// Returns value in -180° to 180° range
 fn angle_difference_degrees(angle1: f64, angle2: f64) -> f64 {
     normalize_angle_degrees(angle2 - angle1)
+}
+
+/// Average two angles while respecting circular angle space
+/// Returns None if either angle is None
+///
+/// Uses the shorter arc between the two angles for averaging.
+///
+/// # Examples
+/// - `average_angles_degrees(Some(0.0), Some(90.0))` returns `Some(45.0)`
+/// - `average_angles_degrees(Some(350.0), Some(10.0))` returns `Some(0.0)`
+/// - `average_angles_degrees(None, Some(45.0))` returns `None`
+fn average_angles_degrees(angle1: Option<f64>, angle2: Option<f64>) -> Option<f64> {
+    match (angle1, angle2) {
+        (Some(a1), Some(a2)) => {
+            // Calculate the difference using the shorter arc
+            let diff = angle_difference_degrees(a1, a2);
+            // Average by starting from a1 and going halfway towards a2
+            let avg = normalize_angle_degrees(a1 + diff / 2.0);
+            Some(avg)
+        }
+        _ => None,
+    }
 }
 
 /// Determine if the angle change between incoming and outgoing tangents
@@ -377,6 +400,84 @@ fn subpath_to_input_points(
 }
 
 // ============================================================================
+// G1 Continuity Smoothing
+// ============================================================================
+
+/// Apply G1 continuity smoothing to input points
+///
+/// For points marked as Smooth, if the angle difference between incoming
+/// and outgoing tangents is within the threshold, averages them to enforce
+/// perfect G1 continuity.
+///
+/// # Arguments
+/// * `input_points` - Points to smooth (modified in-place)
+/// * `threshold_degrees` - Max angle difference to trigger smoothing (4.0 recommended)
+///
+/// # Returns
+/// * Number of points that were smoothed (for validation)
+fn g1_smooth(input_points: &mut Vec<InputPoint>, threshold_degrees: f64) -> usize {
+    let mut smoothed_count = 0;
+
+    for point in input_points.iter_mut() {
+        // Only smooth points explicitly marked as Smooth
+        if !matches!(point.point_type, PointType::Smooth) {
+            continue;
+        }
+
+        // Both angles must be defined to smooth
+        if let (Some(incoming), Some(outgoing)) = (point.incoming_angle, point.outgoing_angle) {
+            let angle_diff = angle_difference_degrees(incoming, outgoing).abs();
+
+            // If difference is within threshold, average them
+            if angle_diff <= threshold_degrees {
+                if let Some(averaged) = average_angles_degrees(Some(incoming), Some(outgoing)) {
+                    point.incoming_angle = Some(averaged);
+                    point.outgoing_angle = Some(averaged);
+                    smoothed_count += 1;
+                }
+            }
+        }
+    }
+
+    smoothed_count
+}
+
+/// Validate that G1 smoothing was applied correctly
+///
+/// Checks that all Smooth points with both angles defined have matching
+/// incoming and outgoing angles (within floating-point precision tolerance)
+fn validate_g1_smooth(input_points: &[InputPoint]) -> Result<(), String> {
+    const ANGLE_TOLERANCE_DEGREES: f64 = 1e-9;
+
+    for (i, point) in input_points.iter().enumerate() {
+        if !matches!(point.point_type, PointType::Smooth) {
+            continue;
+        }
+
+        match (point.incoming_angle, point.outgoing_angle) {
+            (Some(incoming), Some(outgoing)) => {
+                let diff = angle_difference_degrees(incoming, outgoing).abs();
+                if diff > ANGLE_TOLERANCE_DEGREES {
+                    return Err(format!(
+                        "Point {} marked Smooth but has angle mismatch: {} ≠ {} (diff: {:.9}°)",
+                        i, incoming, outgoing, diff
+                    ));
+                }
+            }
+            (None, None) => {
+                // Both None is acceptable for endpoints
+            }
+            _ => {
+                // One None, one Some would indicate a logic error
+                // but don't fail—just skip validation
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ============================================================================
 // Public API
 // ============================================================================
 
@@ -422,12 +523,19 @@ pub fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
     let mut is_first_subpath = true;
 
     for subpath in subpaths {
-        let input_points =
+        let mut input_points =
             subpath_to_input_points(&subpath, CORNER_THRESHOLD_DEGREES, DEDUP_EPSILON);
 
         if input_points.len() < 2 {
             continue;
         }
+
+        // Apply G1 smoothing to enforce continuity
+        g1_smooth(&mut input_points, G1_SMOOTH_THRESHOLD_DEGREES);
+
+        // Validate smoothing was applied correctly
+        validate_g1_smooth(&input_points)?;
+
         dbg!(&input_points);
         // Fit the curve, abort on any failure
         let fitted_path = fit_curve(input_points, subpath.is_closed)?;
@@ -599,5 +707,184 @@ mod tests {
         assert!(start_tan.is_none());
         // End tangent should also be None (cp2 == p3)
         assert!(end_tan.is_none());
+    }
+
+    #[test]
+    fn test_average_angles_degrees_basic() {
+        // Simple average
+        let result = average_angles_degrees(Some(0.0), Some(90.0));
+        assert!(result.is_some());
+        assert!((result.unwrap() - 45.0).abs() < 1e-10);
+
+        // Another simple case
+        let result = average_angles_degrees(Some(30.0), Some(60.0));
+        assert!(result.is_some());
+        assert!((result.unwrap() - 45.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_average_angles_degrees_wrapping() {
+        // Wrapping case: 350° and 10° should average to 0° (going the short way around)
+        let result = average_angles_degrees(Some(350.0), Some(10.0));
+        assert!(result.is_some());
+        let avg = result.unwrap();
+        // Should be 0° (or very close, accounting for floating point)
+        assert!((avg - 0.0).abs() < 0.1, "Expected ~0°, got {:.2}°", avg);
+
+        // Reverse order should give same result
+        let result = average_angles_degrees(Some(10.0), Some(350.0));
+        assert!(result.is_some());
+        let avg = result.unwrap();
+        assert!((avg - 0.0).abs() < 0.1, "Expected ~0°, got {:.2}°", avg);
+
+        // Another wrapping case: -175° and 175°
+        // These are 10° apart, so average should be ±180°
+        let result = average_angles_degrees(Some(-175.0), Some(175.0));
+        assert!(result.is_some());
+        let avg = result.unwrap();
+        assert!((avg.abs() - 180.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_average_angles_degrees_with_none() {
+        // None cases
+        assert!(average_angles_degrees(None, Some(45.0)).is_none());
+        assert!(average_angles_degrees(Some(45.0), None).is_none());
+        assert!(average_angles_degrees(None, None).is_none());
+    }
+
+    #[test]
+    fn test_g1_smooth_within_threshold() {
+        let mut points = vec![InputPoint {
+            x: 0.0,
+            y: 0.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(45.0),
+            outgoing_angle: Some(47.0), // 2° difference, within 4° threshold
+        }];
+
+        let smoothed = g1_smooth(&mut points, 4.0);
+        assert_eq!(smoothed, 1);
+
+        // Both angles should now be the average (46.0)
+        assert!(points[0].incoming_angle.is_some());
+        assert!(points[0].outgoing_angle.is_some());
+        let inc = points[0].incoming_angle.unwrap();
+        let out = points[0].outgoing_angle.unwrap();
+        assert!((inc - 46.0).abs() < 1e-10);
+        assert!((out - 46.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_g1_smooth_outside_threshold() {
+        let mut points = vec![InputPoint {
+            x: 0.0,
+            y: 0.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(45.0),
+            outgoing_angle: Some(55.0), // 10° difference, outside 4° threshold
+        }];
+
+        let smoothed = g1_smooth(&mut points, 4.0);
+        assert_eq!(smoothed, 0);
+
+        // Angles should remain unchanged
+        assert_eq!(points[0].incoming_angle, Some(45.0));
+        assert_eq!(points[0].outgoing_angle, Some(55.0));
+    }
+
+    #[test]
+    fn test_g1_smooth_ignores_corners() {
+        let mut points = vec![InputPoint {
+            x: 0.0,
+            y: 0.0,
+            point_type: PointType::Corner,
+            incoming_angle: Some(45.0),
+            outgoing_angle: Some(47.0), // Within threshold but it's a corner
+        }];
+
+        let smoothed = g1_smooth(&mut points, 4.0);
+        assert_eq!(smoothed, 0);
+
+        // Angles should remain unchanged (corners are not smoothed)
+        assert_eq!(points[0].incoming_angle, Some(45.0));
+        assert_eq!(points[0].outgoing_angle, Some(47.0));
+    }
+
+    #[test]
+    fn test_g1_smooth_missing_angles() {
+        let mut points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(45.0),
+                outgoing_angle: None,
+            },
+            InputPoint {
+                x: 10.0,
+                y: 10.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(45.0),
+            },
+        ];
+
+        let smoothed = g1_smooth(&mut points, 4.0);
+        assert_eq!(smoothed, 0);
+
+        // Angles should remain unchanged
+        assert_eq!(points[0].incoming_angle, Some(45.0));
+        assert_eq!(points[0].outgoing_angle, None);
+        assert_eq!(points[1].incoming_angle, None);
+        assert_eq!(points[1].outgoing_angle, Some(45.0));
+    }
+
+    #[test]
+    fn test_validate_g1_smooth_passes() {
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(45.0),
+                outgoing_angle: Some(45.0), // Perfectly matched
+            },
+            InputPoint {
+                x: 10.0,
+                y: 10.0,
+                point_type: PointType::Corner,
+                incoming_angle: Some(45.0),
+                outgoing_angle: Some(90.0), // Mismatched but it's a corner
+            },
+        ];
+
+        assert!(validate_g1_smooth(&points).is_ok());
+    }
+
+    #[test]
+    fn test_validate_g1_smooth_fails() {
+        let points = vec![InputPoint {
+            x: 0.0,
+            y: 0.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(45.0),
+            outgoing_angle: Some(47.0), // Mismatched and it's smooth
+        }];
+
+        assert!(validate_g1_smooth(&points).is_err());
+    }
+
+    #[test]
+    fn test_validate_g1_smooth_with_none_angles() {
+        let points = vec![InputPoint {
+            x: 0.0,
+            y: 0.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None, // Both None is acceptable
+        }];
+
+        assert!(validate_g1_smooth(&points).is_ok());
     }
 }
