@@ -1,5 +1,5 @@
 use curve_fitter::{
-    CurveFitter, InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
+    InputPoint, PointType, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
@@ -315,9 +315,7 @@ pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<Cur
         })
         .collect();
 
-    let fitter = CurveFitter::new();
-
-    match fitter.fit_curve(input_points, options.cyclic) {
+    match curve_fitter::fit_curve(input_points, options.cyclic) {
         Ok(bez_path) => bez_path_to_segments(&bez_path),
         Err(_) => Vec::new(),
     }
@@ -344,9 +342,7 @@ pub fn fit_curve_with_stroke(
         })
         .collect();
 
-    let fitter = CurveFitter::new();
-
-    match fitter.fit_curve(input_points, curve_options.cyclic) {
+    match curve_fitter::fit_curve(input_points, curve_options.cyclic) {
         Ok(bez_path) => {
             let widths = &stroke_options.widths;
 
@@ -403,9 +399,7 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
         })
         .collect();
 
-    let fitter = CurveFitter::new();
-
-    match fitter.fit_curve(input_points, options.cyclic) {
+    match curve_fitter::fit_curve(input_points, options.cyclic) {
         Ok(bez_path) => bez_path.to_svg(),
         Err(e) => {
             console_log!("Error fitting curve with stroke: {}", e);
@@ -436,9 +430,7 @@ pub fn curve_to_svg_path_with_stroke(
         })
         .collect();
 
-    let fitter = CurveFitter::new();
-
-    match fitter.fit_curve(input_points, curve_options.cyclic) {
+    match curve_fitter::fit_curve(input_points, curve_options.cyclic) {
         Ok(bez_path) => {
             if use_stroke {
                 let widths = &stroke_options.widths;
