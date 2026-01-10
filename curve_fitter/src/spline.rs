@@ -13,7 +13,14 @@ impl Spline {
     pub fn new(input_points: Vec<InputPoint>, is_closed: bool) -> Self {
         let ctrl_pts = input_points
             .into_iter()
-            .map(|p| ControlPoint::new(Point::new(p.x, p.y), p.point_type))
+            .map(|p| {
+                ControlPoint::new(
+                    Point::new(p.x, p.y),
+                    p.point_type,
+                    p.incoming_angle,
+                    p.outgoing_angle,
+                )
+            })
             .collect();
 
         Self {
@@ -73,6 +80,21 @@ impl Spline {
                 self.ctrl_pts[actual_i].ty = PointType::Corner;
                 self.ctrl_pts[actual_i].lth = Some(th);
                 self.ctrl_pts[actual_i].rth = Some(th);
+            }
+        }
+
+        // Convert to corners if incoming and outgoing angles differ
+        for i in 0..self.ctrl_pts.len() {
+            let pt = &self.ctrl_pts[i];
+
+            // If both angles are specified and they differ, treat as corner
+            if let (Some(lth), Some(rth)) = (pt.lth, pt.rth) {
+                const ANGLE_EPSILON: f64 = 1e-6; // ~0.00006 degrees in radians
+
+                if (mod2pi(lth - rth)).abs() > ANGLE_EPSILON {
+                    // Angles differ - convert to corner for non-smooth transition
+                    self.ctrl_pts[i].ty = PointType::Corner;
+                }
             }
         }
 
@@ -222,5 +244,242 @@ impl Spline {
         let length = self.ctrl_pts.len();
         let index = (i + start) % length;
         &self.ctrl_pts[index]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{InputPoint, PointType, fit_curve};
+
+    #[test]
+    fn test_explicit_angles_horizontal() {
+        // Test with explicit horizontal angles (0 degrees)
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(0.0), // horizontal
+            },
+            InputPoint {
+                x: 100.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(0.0), // horizontal
+                outgoing_angle: None,
+            },
+        ];
+
+        let result = fit_curve(points, false);
+        assert!(
+            result.is_ok(),
+            "Should successfully fit curve with explicit angles"
+        );
+    }
+
+    #[test]
+    fn test_explicit_angles_vertical() {
+        // Test with explicit vertical angles (90 degrees)
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(90.0), // vertical up
+            },
+            InputPoint {
+                x: 0.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(90.0), // vertical up
+                outgoing_angle: None,
+            },
+        ];
+
+        let result = fit_curve(points, false);
+        assert!(
+            result.is_ok(),
+            "Should successfully fit curve with vertical angles"
+        );
+    }
+
+    #[test]
+    fn test_different_angles_becomes_corner() {
+        // Test that different incoming/outgoing angles create a corner
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(0.0), // horizontal
+            },
+            InputPoint {
+                x: 100.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(0.0),  // horizontal in
+                outgoing_angle: Some(90.0), // vertical out - different!
+            },
+            InputPoint {
+                x: 100.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+
+        let mut spline = Spline::new(points, false);
+        spline.solve().unwrap();
+
+        // Second point should be converted to Corner due to different angles
+        assert!(
+            matches!(spline.ctrl_pts[1].ty, PointType::Corner),
+            "Point with different incoming/outgoing angles should become a corner"
+        );
+    }
+
+    #[test]
+    fn test_same_angles_stays_smooth() {
+        // Test that same incoming/outgoing angles keep smooth point type
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(45.0),
+            },
+            InputPoint {
+                x: 100.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(45.0), // same as outgoing
+                outgoing_angle: Some(45.0), // same as incoming
+            },
+            InputPoint {
+                x: 200.0,
+                y: 200.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+
+        let mut spline = Spline::new(points, false);
+        spline.solve().unwrap();
+
+        // Second point should remain Smooth since angles are the same
+        assert!(
+            matches!(spline.ctrl_pts[1].ty, PointType::Smooth),
+            "Point with same incoming/outgoing angles should stay smooth"
+        );
+    }
+
+    #[test]
+    fn test_metapost_style_curve() {
+        // Test MetaPost-style curve: z1{dir 10}..{dir 90}z2..z3
+        let points = vec![
+            InputPoint {
+                x: 50.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(10.0), // {dir 10}
+            },
+            InputPoint {
+                x: 150.0,
+                y: 50.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(90.0), // {dir 90}
+                outgoing_angle: None,
+            },
+            InputPoint {
+                x: 250.0,
+                y: 150.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+
+        let result = fit_curve(points, false);
+        assert!(
+            result.is_ok(),
+            "MetaPost-style curve should fit successfully"
+        );
+
+        let bez_path = result.unwrap();
+        assert!(
+            bez_path.elements().len() > 0,
+            "Should generate path elements"
+        );
+    }
+
+    #[test]
+    fn test_no_angles_automatic() {
+        // Test that curves work automatically when no angles specified
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+            InputPoint {
+                x: 100.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+            InputPoint {
+                x: 200.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+
+        let result = fit_curve(points, false);
+        assert!(result.is_ok(), "Automatic curve fitting should work");
+    }
+
+    #[test]
+    fn test_degrees_to_radians_conversion() {
+        // Test that degrees are properly converted to radians
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(180.0), // 180 degrees = π radians
+            },
+            InputPoint {
+                x: 100.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+
+        let spline = Spline::new(points, false);
+
+        // Check that the angle was converted to radians (approximately π)
+        if let Some(rth) = spline.ctrl_pts[0].rth {
+            let pi = std::f64::consts::PI;
+            assert!(
+                (rth - pi).abs() < 0.01,
+                "180 degrees should be converted to approximately π radians"
+            );
+        }
     }
 }

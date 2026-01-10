@@ -15,6 +15,12 @@ pub struct InputPoint {
     pub x: f64,
     pub y: f64,
     pub point_type: PointType,
+    /// Incoming tangent angle in degrees (direction approaching this point)
+    /// Corresponds to MetaPost syntax: {dir X}..point
+    pub incoming_angle: Option<f64>,
+    /// Outgoing tangent angle in degrees (direction leaving this point)
+    /// Corresponds to MetaPost syntax: point..{dir X}
+    pub outgoing_angle: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,12 +46,16 @@ struct ControlPoint {
 }
 
 impl ControlPoint {
-    fn new(pt: Point, ty: PointType) -> Self {
+    fn new(pt: Point, ty: PointType, incoming_deg: Option<f64>, outgoing_deg: Option<f64>) -> Self {
+        // Convert degrees to radians for internal use
+        let lth = incoming_deg.map(|deg| deg.to_radians());
+        let rth = outgoing_deg.map(|deg| deg.to_radians());
+
         Self {
             pt,
             ty,
-            lth: None,
-            rth: None,
+            lth,
+            rth,
             l_th: None,
             r_th: None,
             l_ak: None,

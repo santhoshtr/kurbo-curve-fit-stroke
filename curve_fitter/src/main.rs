@@ -45,6 +45,8 @@ fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
                     x: p.x,
                     y: p.y,
                     point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
                 });
             }
             PathEl::LineTo(p) => {
@@ -52,6 +54,8 @@ fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
                     x: p.x,
                     y: p.y,
                     point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
                 });
             }
             PathEl::QuadTo(_, p2) => {
@@ -59,6 +63,8 @@ fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
                     x: p2.x,
                     y: p2.y,
                     point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
                 });
             }
             PathEl::CurveTo(_, _, p3) => {
@@ -66,6 +72,8 @@ fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
                     x: p3.x,
                     y: p3.y,
                     point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
                 });
             }
             PathEl::ClosePath => {
@@ -110,21 +118,29 @@ fn main() {
             x: 50.0,
             y: 100.0,
             point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
         },
         InputPoint {
             x: 150.0,
             y: 50.0,
             point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
         },
         InputPoint {
             x: 250.0,
             y: 150.0,
             point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
         },
         InputPoint {
             x: 350.0,
             y: 100.0,
             point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
         },
     ];
 
@@ -216,4 +232,92 @@ fn main() {
     let stroker = VariableStroker::new(0.1);
     let result_path = stroker.stroke(&straight_line, &widths, &style);
     write_path_to_svg(&result_path, "line-outline.svg");
+
+    // MetaPost-style example with explicit tangent angles
+    // Equivalent to: z1{dir 10}..{dir 90}z2..z3{dir 45}..z4
+    println!("\n=== MetaPost-Style Curve Demo ===");
+    let metapost_points = vec![
+        InputPoint {
+            x: 50.0,
+            y: 100.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: Some(10.0), // {dir 10} leaving z1
+        },
+        InputPoint {
+            x: 150.0,
+            y: 50.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(90.0), // {dir 90} approaching z2
+            outgoing_angle: None,       // computed automatically
+        },
+        InputPoint {
+            x: 250.0,
+            y: 150.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,       // computed automatically
+            outgoing_angle: Some(45.0), // {dir 45} leaving z3
+        },
+        InputPoint {
+            x: 350.0,
+            y: 100.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
+        },
+    ];
+
+    match fit_curve(metapost_points, false) {
+        Ok(bez_path) => {
+            println!("Successfully created MetaPost-style curve!");
+            println!(
+                "Bezier path created with {} elements",
+                bez_path.elements().len()
+            );
+            write_path_to_svg(&bez_path, "metapost-style-curve.svg");
+        }
+        Err(e) => {
+            println!("Error creating MetaPost-style curve: {}", e);
+        }
+    }
+
+    // Example with different incoming/outgoing angles (creates a corner)
+    println!("\n=== Corner Example (Different Angles) ===");
+    let corner_points = vec![
+        InputPoint {
+            x: 50.0,
+            y: 100.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: Some(0.0), // horizontal out
+        },
+        InputPoint {
+            x: 150.0,
+            y: 100.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(0.0),  // horizontal in
+            outgoing_angle: Some(90.0), // vertical out - creates corner!
+        },
+        InputPoint {
+            x: 150.0,
+            y: 200.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
+        },
+    ];
+
+    match fit_curve(corner_points, false) {
+        Ok(bez_path) => {
+            println!("Successfully created corner curve!");
+            println!(
+                "Bezier path created with {} elements",
+                bez_path.elements().len()
+            );
+            write_path_to_svg(&bez_path, "corner-angle-curve.svg");
+        }
+        Err(e) => {
+            println!("Error creating corner curve: {}", e);
+        }
+    }
 }

@@ -36,6 +36,8 @@ pub struct WebPoint {
     x: f64,
     y: f64,
     point_type: WebPointType,
+    incoming_angle: Option<f64>, // in degrees
+    outgoing_angle: Option<f64>, // in degrees
 }
 
 #[wasm_bindgen]
@@ -46,12 +48,20 @@ impl WebPoint {
             x,
             y,
             point_type: WebPointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: None,
         }
     }
 
     #[wasm_bindgen]
     pub fn new_with_type(x: f64, y: f64, point_type: WebPointType) -> WebPoint {
-        WebPoint { x, y, point_type }
+        WebPoint {
+            x,
+            y,
+            point_type,
+            incoming_angle: None,
+            outgoing_angle: None,
+        }
     }
 
     #[wasm_bindgen(getter)]
@@ -82,6 +92,36 @@ impl WebPoint {
     #[wasm_bindgen(setter)]
     pub fn set_point_type(&mut self, point_type: WebPointType) {
         self.point_type = point_type;
+    }
+
+    #[wasm_bindgen]
+    pub fn incoming_angle(&self) -> Option<f64> {
+        self.incoming_angle
+    }
+
+    #[wasm_bindgen]
+    pub fn set_incoming_angle(&mut self, angle: f64) {
+        self.incoming_angle = Some(angle);
+    }
+
+    #[wasm_bindgen]
+    pub fn clear_incoming_angle(&mut self) {
+        self.incoming_angle = None;
+    }
+
+    #[wasm_bindgen]
+    pub fn outgoing_angle(&self) -> Option<f64> {
+        self.outgoing_angle
+    }
+
+    #[wasm_bindgen]
+    pub fn set_outgoing_angle(&mut self, angle: f64) {
+        self.outgoing_angle = Some(angle);
+    }
+
+    #[wasm_bindgen]
+    pub fn clear_outgoing_angle(&mut self) {
+        self.outgoing_angle = None;
     }
 }
 
@@ -312,6 +352,8 @@ pub fn fit_curve(points: Vec<WebPoint>, options: &CurveFitterOptions) -> Vec<Cur
             x: p.x,
             y: p.y,
             point_type: convert_web_point_type(p.point_type),
+            incoming_angle: p.incoming_angle,
+            outgoing_angle: p.outgoing_angle,
         })
         .collect();
 
@@ -339,6 +381,8 @@ pub fn fit_curve_with_stroke(
             x: p.x,
             y: p.y,
             point_type: convert_web_point_type(p.point_type),
+            incoming_angle: p.incoming_angle,
+            outgoing_angle: p.outgoing_angle,
         })
         .collect();
 
@@ -396,6 +440,8 @@ pub fn curve_to_svg_path(points: Vec<WebPoint>, options: &CurveFitterOptions) ->
             x: p.x,
             y: p.y,
             point_type: convert_web_point_type(p.point_type),
+            incoming_angle: p.incoming_angle,
+            outgoing_angle: p.outgoing_angle,
         })
         .collect();
 
@@ -427,6 +473,8 @@ pub fn curve_to_svg_path_with_stroke(
             x: p.x,
             y: p.y,
             point_type: convert_web_point_type(p.point_type),
+            incoming_angle: p.incoming_angle,
+            outgoing_angle: p.outgoing_angle,
         })
         .collect();
 

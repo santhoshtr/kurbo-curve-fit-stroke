@@ -35,11 +35,15 @@ class CurveFitterDemo {
 
     // Point types (0 = Smooth, 1 = Corner)
     this.pointTypes = [];
+    // Point angles (incoming/outgoing in degrees)
+    this.pointAngles = [];
     // Canvas state
     this.canvasRect = null;
 
     // Tweakpane instance
     this.pane = null;
+    // Selected point controls folder
+    this.selectedPointFolder = null;
   }
 
   screenToCartesian(screenX, screenY) {
@@ -114,6 +118,13 @@ class CurveFitterDemo {
         label: "Show controls",
       })
       .on("change", () => this.updateDisplay());
+
+    // Selected Point Controls folder (dynamic)
+    this.selectedPointFolder = this.pane.addFolder({
+      title: "Selected Point",
+      expanded: true,
+    });
+    this.updateSelectedPointFolder();
 
     // Stroke options folder
     const strokeFolder = this.pane.addFolder({
@@ -206,6 +217,142 @@ class CurveFitterDemo {
     });
   }
 
+  updateSelectedPointFolder() {
+    // Clear existing controls
+    this.selectedPointFolder.children.forEach((child) => child.dispose());
+
+    if (
+      this.selectedPointIndex === -1 ||
+      this.selectedPointIndex >= this.points.length
+    ) {
+      // No point selected - show placeholder
+      const statusObj = { status: "No point selected" };
+      this.selectedPointFolder.addBinding(statusObj, "status", {
+        label: "Status",
+        readonly: true,
+      });
+      return;
+    }
+
+    const idx = this.selectedPointIndex;
+    const point = this.points[idx];
+    const pointType = this.pointTypes[idx];
+
+    // Ensure angles array is initialized
+    if (!this.pointAngles[idx]) {
+      this.pointAngles[idx] = { incoming: null, outgoing: null };
+    }
+    const angles = this.pointAngles[idx];
+
+    // Point info
+    const pointObj = { point: `#${idx}` };
+    this.selectedPointFolder.addBinding(pointObj, "point", {
+      label: "Point",
+      readonly: true,
+    });
+
+    const posObj = {
+      position: `(${Math.round(point.x)}, ${Math.round(point.y)})`,
+    };
+    this.selectedPointFolder.addBinding(posObj, "position", {
+      label: "Position",
+      readonly: true,
+    });
+
+    // Point type toggle
+    const typeBinding = this.selectedPointFolder.addBinding(
+      { type: pointType === 1 ? "Corner" : "Smooth" },
+      "type",
+      {
+        label: "Type",
+        options: {
+          Smooth: "Smooth",
+          Corner: "Corner",
+        },
+      },
+    );
+    typeBinding.on("change", (ev) => {
+      this.pointTypes[idx] = ev.value === "Corner" ? 1 : 0;
+      this.updateDisplay();
+    });
+
+    // Stroke offset
+    this.ensurePointOffsetsInitialized();
+    const offsetBinding = this.selectedPointFolder.addBinding(
+      this.params.pointOffsets,
+      idx,
+      {
+        label: "Stroke Offset",
+        min: 0,
+        max: 100,
+        step: 0.5,
+      },
+    );
+    offsetBinding.on("change", () => this.updateDisplay());
+
+    // Incoming angle
+    const incomingParams = {
+      value: angles.incoming !== null ? angles.incoming : 0,
+    };
+    const incomingBinding = this.selectedPointFolder.addBinding(
+      incomingParams,
+      "value",
+      {
+        label: "Incoming °",
+        min: 0,
+        max: 360,
+      },
+    );
+    incomingBinding.on("change", (ev) => {
+      const val = ev.value;
+      if (val === "" || val === null || val === undefined) {
+        this.pointAngles[idx].incoming = null;
+      } else {
+        const numVal = parseFloat(val);
+        if (!isNaN(numVal)) {
+          this.pointAngles[idx].incoming = numVal;
+        }
+      }
+      this.updateDisplay();
+    });
+
+    // Outgoing angle
+    const outgoingParams = {
+      value: angles.outgoing !== null ? angles.outgoing : 0,
+    };
+    const outgoingBinding = this.selectedPointFolder.addBinding(
+      outgoingParams,
+      "value",
+      {
+        label: "Outgoing °",
+        min: 0,
+        max: 360,
+      },
+    );
+    outgoingBinding.on("change", (ev) => {
+      const val = ev.value;
+      if (val === "" || val === null || val === undefined) {
+        this.pointAngles[idx].outgoing = null;
+      } else {
+        const numVal = parseFloat(val);
+        if (!isNaN(numVal)) {
+          this.pointAngles[idx].outgoing = numVal;
+        }
+      }
+      this.updateDisplay();
+    });
+
+    // Clear angles button
+    this.selectedPointFolder
+      .addButton({ title: "Clear Angles" })
+      .on("click", () => {
+        this.pointAngles[idx].incoming = null;
+        this.pointAngles[idx].outgoing = null;
+        this.updateSelectedPointFolder();
+        this.updateDisplay();
+      });
+  }
+
   setupEventListeners() {
     // Mouse events
     this.canvas.addEventListener("mousedown", (e) => this.onMouseDown(e));
@@ -268,6 +415,7 @@ class CurveFitterDemo {
       this.selectedPointIndex = -1;
     }
 
+    this.updateSelectedPointFolder();
     this.updateDisplay();
   }
 
@@ -277,6 +425,7 @@ class CurveFitterDemo {
 
     if (pointIndex !== -1) {
       this.togglePointType(pointIndex);
+      this.updateSelectedPointFolder();
       this.updateDisplay();
     }
   }
@@ -440,7 +589,9 @@ class CurveFitterDemo {
     this.points.push({ x, y });
     this.pointTypes.push(0);
     this.params.pointOffsets.push(this.params.strokeWidth);
+    this.pointAngles.push({ incoming: null, outgoing: null });
     this.selectedPointIndex = this.points.length - 1;
+    this.updateSelectedPointFolder();
     this.updateDisplay();
   }
 
@@ -448,6 +599,7 @@ class CurveFitterDemo {
     this.points.splice(index, 1);
     this.pointTypes.splice(index, 1);
     this.params.pointOffsets.splice(index, 1);
+    this.pointAngles.splice(index, 1);
 
     if (this.selectedPointIndex === index) {
       this.selectedPointIndex = -1;
@@ -455,6 +607,7 @@ class CurveFitterDemo {
       this.selectedPointIndex--;
     }
 
+    this.updateSelectedPointFolder();
     this.updateDisplay();
   }
 
@@ -468,7 +621,9 @@ class CurveFitterDemo {
     this.points = [];
     this.pointTypes = [];
     this.params.pointOffsets = [];
+    this.pointAngles = [];
     this.selectedPointIndex = -1;
+    this.updateSelectedPointFolder();
     this.updateDisplay();
   }
 
@@ -506,7 +661,14 @@ class CurveFitterDemo {
       this.points = [...presets[name].points];
       this.pointTypes = [...presets[name].types];
       this.params.pointOffsets = new Array(this.points.length).fill(0);
+      // Initialize angles from preset or default to null
+      this.pointAngles = presets[name].angles
+        ? [...presets[name].angles]
+        : new Array(this.points.length)
+            .fill(null)
+            .map(() => ({ incoming: null, outgoing: null }));
       this.selectedPointIndex = -1;
+      this.updateSelectedPointFolder();
       this.updateDisplay();
     }
   }
@@ -520,7 +682,19 @@ class CurveFitterDemo {
       const webPoints = this.points.map((p, i) => {
         const pointType =
           this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
-        return WebPoint.new_with_type(p.x, p.y, pointType);
+        const webPoint = WebPoint.new_with_type(p.x, p.y, pointType);
+
+        // Set angles if they exist
+        if (this.pointAngles[i]) {
+          if (this.pointAngles[i].incoming !== null) {
+            webPoint.set_incoming_angle(this.pointAngles[i].incoming);
+          }
+          if (this.pointAngles[i].outgoing !== null) {
+            webPoint.set_outgoing_angle(this.pointAngles[i].outgoing);
+          }
+        }
+
+        return webPoint;
       });
 
       const options = new CurveFitterOptions();
@@ -542,7 +716,19 @@ class CurveFitterDemo {
       const webPoints = this.points.map((p, i) => {
         const pointType =
           this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
-        return WebPoint.new_with_type(p.x, p.y, pointType);
+        const webPoint = WebPoint.new_with_type(p.x, p.y, pointType);
+
+        // Set angles if they exist
+        if (this.pointAngles[i]) {
+          if (this.pointAngles[i].incoming !== null) {
+            webPoint.set_incoming_angle(this.pointAngles[i].incoming);
+          }
+          if (this.pointAngles[i].outgoing !== null) {
+            webPoint.set_outgoing_angle(this.pointAngles[i].outgoing);
+          }
+        }
+
+        return webPoint;
       });
 
       const options = new CurveFitterOptions();
@@ -841,7 +1027,17 @@ class CurveFitterDemo {
     const pointType = this.pointTypes[pointIndex];
     const typeText = pointType === 1 ? "Corner" : "Smooth";
 
-    pointInfo.innerHTML = `Point ${pointIndex}: (${Math.round(point.x)}, ${Math.round(point.y)}) - ${typeText}`;
+    // Get angle information
+    let angleText = "";
+    if (this.pointAngles[pointIndex]) {
+      const incoming = this.pointAngles[pointIndex].incoming;
+      const outgoing = this.pointAngles[pointIndex].outgoing;
+      const inText = incoming !== null ? `${incoming.toFixed(0)}°` : "—";
+      const outText = outgoing !== null ? `${outgoing.toFixed(0)}°` : "—";
+      angleText = ` | In: ${inText} | Out: ${outText}`;
+    }
+
+    pointInfo.innerHTML = `Point ${pointIndex}: (${Math.round(point.x)}, ${Math.round(point.y)}) - ${typeText}${angleText}`;
     pointInfo.style.display = "block";
     pointInfo.style.left = screenX + 10 + "px";
     pointInfo.style.top = screenY - 30 + "px";
@@ -890,7 +1086,19 @@ class CurveFitterDemo {
       const webPoints = this.points.map((p, i) => {
         const pointType =
           this.pointTypes[i] === 1 ? WebPointType.Corner : WebPointType.Smooth;
-        return WebPoint.new_with_type(p.x, p.y, pointType);
+        const webPoint = WebPoint.new_with_type(p.x, p.y, pointType);
+
+        // Set angles if they exist
+        if (this.pointAngles[i]) {
+          if (this.pointAngles[i].incoming !== null) {
+            webPoint.set_incoming_angle(this.pointAngles[i].incoming);
+          }
+          if (this.pointAngles[i].outgoing !== null) {
+            webPoint.set_outgoing_angle(this.pointAngles[i].outgoing);
+          }
+        }
+
+        return webPoint;
       });
 
       const curveOptions = new CurveFitterOptions();
