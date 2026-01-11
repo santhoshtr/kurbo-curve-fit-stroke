@@ -1,6 +1,6 @@
 use curve_fitter::{
-    InputPoint, PointType, fit_curve, refit_stroke, var_stroke::VariableStroke,
-    var_stroker::VariableStroker,
+    InputPoint, PointType, fit_curve, refit_stroke, refit_stroke_with_skeleton,
+    register_skeleton_for_preservation, var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, PathEl};
 use std::fs;
@@ -87,7 +87,7 @@ fn main() {
             let result_path = stroke.stroke(&bez_path, &widths, &style);
             write_path_to_svg(&result_path, "curve-fit-same-stroke.svg");
             // Varying same width - should behave like constant stroke
-            let widths = vec![10.0, 15.0, 20.0, 25.0];
+            let widths = vec![10.0, 15.0, 40.0, 25.0];
             let stroke = VariableStroker::new(0.1);
             let result_path = stroke.stroke(&bez_path, &widths, &style);
             write_path_to_svg(&result_path, "curve-fit-var-stroke.svg");
@@ -124,6 +124,7 @@ fn main() {
             println!("Error fitting curve: {}", e);
         }
     }
+
     // Approximate letter 'O' with 4 cubic curves
     let mut o_path = BezPath::new();
     o_path.move_to((50.0, 0.0));
@@ -249,7 +250,7 @@ fn main() {
         },
     ];
 
-    match fit_curve(corner_points, false) {
+    match fit_curve(corner_points.clone(), false) {
         Ok(bez_path) => {
             println!("Successfully created corner curve!");
             println!(
@@ -260,6 +261,87 @@ fn main() {
         }
         Err(e) => {
             println!("Error creating corner curve: {}", e);
+        }
+    }
+
+    // Skeleton angle preservation example
+    println!("\n=== Skeleton Angle Preservation Demo ===");
+    let skeleton_points = vec![
+        InputPoint {
+            x: 50.0,
+            y: 100.0,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: Some(20.0), // Specific angle leaving first point
+        },
+        InputPoint {
+            x: 150.0,
+            y: 50.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(80.0),  // Specific angle approaching
+            outgoing_angle: Some(100.0), // Specific angle leaving
+        },
+        InputPoint {
+            x: 250.0,
+            y: 150.0,
+            point_type: PointType::Smooth,
+            incoming_angle: Some(260.0), // Specific angle approaching last point
+            outgoing_angle: None,
+        },
+    ];
+
+    match fit_curve(skeleton_points.clone(), false) {
+        Ok(skeleton) => {
+            println!(
+                "Created skeleton curve with {} elements",
+                skeleton.elements().len()
+            );
+
+            // Register skeleton before stroking
+            let widths = vec![10.0, 15.0, 10.0]; // Variable width
+            match register_skeleton_for_preservation(&skeleton, &skeleton_points, &widths, false) {
+                Ok(skeleton_info) => {
+                    println!("Skeleton successfully registered for angle preservation");
+
+                    // Stroke the skeleton
+                    let stroker = VariableStroker::new(0.1);
+                    let outline = stroker.stroke(&skeleton, &widths, &style);
+                    println!(
+                        "Stroke outline created with {} elements",
+                        outline.elements().len()
+                    );
+                    write_path_to_svg(&outline, "skeleton-stroke-outline.svg");
+
+                    // Refit WITHOUT skeleton preservation (for comparison)
+                    match refit_stroke(&outline) {
+                        Ok(refitted_no_skel) => {
+                            println!(
+                                "Refitted WITHOUT skeleton: {} elements",
+                                refitted_no_skel.elements().len()
+                            );
+                            write_path_to_svg(&refitted_no_skel, "skeleton-refitted-without.svg");
+                        }
+                        Err(e) => println!("Error refitting without skeleton: {}", e),
+                    }
+
+                    // Refit WITH skeleton preservation
+                    match refit_stroke_with_skeleton(&outline, &skeleton_info) {
+                        Ok(refitted_with_skel) => {
+                            println!(
+                                "Refitted WITH skeleton: {} elements",
+                                refitted_with_skel.elements().len()
+                            );
+                            write_path_to_svg(&refitted_with_skel, "skeleton-refitted-with.svg");
+                            println!("✓ Skeleton angles preserved in refitted stroke!");
+                        }
+                        Err(e) => println!("Error refitting with skeleton: {}", e),
+                    }
+                }
+                Err(e) => println!("Error registering skeleton: {}", e),
+            }
+        }
+        Err(e) => {
+            println!("Error creating skeleton curve: {}", e);
         }
     }
 }

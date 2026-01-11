@@ -8,9 +8,122 @@ use crate::{InputPoint, PointType, fit_curve};
 use kurbo::{BezPath, PathEl, Point, Vec2};
 
 const CORNER_THRESHOLD_DEGREES: f64 = 10.0;
-const G1_SMOOTH_THRESHOLD_DEGREES: f64 = 4.0;
+const G1_SMOOTH_THRESHOLD_DEGREES: f64 = 7.0;
 const DEDUP_EPSILON: f64 = 1e-6;
 const EPS: f64 = 1e-12;
+const SKELETON_MATCH_TOLERANCE: f64 = 1.0;
+
+// ============================================================================
+// Skeleton Angle Preservation Data Structures
+// ============================================================================
+
+/// Stores pre-computed information about the skeleton path for angle preservation
+///
+/// This struct holds all necessary data to match outline points back to skeleton
+/// locations. It should be created once before stroking, then reused for multiple
+/// refit operations on the same skeleton.
+///
+/// # Fields
+/// * `segments` - Pre-computed skeleton segments with geometry and width info
+/// * `angles_at_points` - Incoming/outgoing angles at each on-curve skeleton point
+/// * `is_closed` - Whether the original skeleton path was closed
+#[derive(Debug, Clone)]
+pub struct SkeletonInfo {
+    /// Pre-computed skeleton segments for fast nearest-point queries
+    /// Length = number of segments in original path
+    segments: Vec<SkeletonSegment>,
+
+    /// Incoming and outgoing angles at each on-curve skeleton point (degrees)
+    /// Index corresponds to on-curve points in the original skeleton path
+    /// Length = number of on-curve points
+    angles_at_points: Vec<(Option<f64>, Option<f64>)>,
+
+    /// Whether the skeleton path is closed
+    is_closed: bool,
+}
+
+/// One segment of the skeleton path with pre-computed geometry
+///
+/// A segment is a single path element (LineTo, QuadTo, or CurveTo).
+/// We cache geometric information to avoid recalculating during matching.
+#[derive(Clone, Debug)]
+struct SkeletonSegment {
+    /// Index of this segment in the original path
+    /// Corresponds to the on-curve point where this segment ends
+    segment_index: usize,
+
+    /// Start point of this segment (on-curve)
+    start_point: Point,
+
+    /// End point of this segment (on-curve)
+    end_point: Point,
+
+    /// Stroke width at segment start
+    /// Used for offset distance validation
+    start_width: f64,
+
+    /// Stroke width at segment end
+    /// Used for offset distance validation and interpolation
+    end_width: f64,
+
+    /// Tangent vector at segment start (cached for angle extraction)
+    start_tangent: Vec2,
+
+    /// Tangent vector at segment end (cached for angle extraction)
+    end_tangent: Vec2,
+
+    /// The actual path element (LineTo, QuadTo, CurveTo)
+    /// Stored for derivative calculation at arbitrary parameters
+    element: PathEl,
+}
+
+/// Result of matching an outline point back to skeleton geometry
+///
+/// This struct contains all information about where an outline point came from
+/// in the skeleton, whether the match is confident, and what angle to apply.
+///
+/// An outline point "matches" a skeleton location if:
+/// - The perpendicular distance from outline point to skeleton ≈ expected_offset
+/// - The expected_offset is interpolated from skeleton widths
+/// - The tolerance for this match is 1.0 unit
+#[derive(Debug, Clone)]
+pub struct OutlineSkeletonMatch {
+    /// Index of the skeleton segment this outline point came from
+    /// Index refers to segments in SkeletonInfo
+    pub segment_index: usize,
+
+    /// Parameter along the skeleton segment [0.0, 1.0]
+    /// 0.0 = segment start (on-curve point)
+    /// 1.0 = segment end (on-curve point)
+    /// 0.0 < t < 1.0 = between skeleton on-curve points
+    pub segment_parameter_t: f64,
+
+    /// Interpolated skeleton angle at the matched location (degrees)
+    ///
+    /// Extraction logic:
+    /// - If t ≈ 0.0: use skeleton point's outgoing angle
+    /// - If t ≈ 1.0: use skeleton point's incoming angle
+    /// - If 0.0 < t < 1.0: use segment tangent angle at parameter t
+    ///
+    /// None if unable to compute (e.g., degenerate segment)
+    pub skeleton_angle: Option<f64>,
+
+    /// Actual perpendicular distance from outline point to matched skeleton point
+    /// Used for validation and debugging
+    pub distance_to_skeleton: f64,
+
+    /// Whether this is a "confident" match
+    ///
+    /// Confident if: |distance_to_skeleton - expected_offset| <= tolerance (1.0)
+    ///
+    /// Only confident matches have their skeleton angles applied to outline points.
+    /// Non-confident matches are silently ignored (outline angles preserved).
+    pub is_confident_match: bool,
+
+    /// Expected stroke offset at the matched skeleton location
+    /// Calculated by interpolating widths at parameter t
+    pub expected_offset: f64,
+}
 
 /// Internal representation of a path segment with tangent information
 #[derive(Debug, Clone)]
@@ -427,7 +540,8 @@ fn g1_smooth(input_points: &mut Vec<InputPoint>, threshold_degrees: f64) -> usiz
         // Both angles must be defined to smooth
         if let (Some(incoming), Some(outgoing)) = (point.incoming_angle, point.outgoing_angle) {
             let angle_diff = angle_difference_degrees(incoming, outgoing).abs();
-
+            dbg!(&point);
+            dbg!(&angle_diff);
             // If difference is within threshold, average them
             if angle_diff <= threshold_degrees {
                 if let Some(averaged) = average_angles_degrees(Some(incoming), Some(outgoing)) {
@@ -475,6 +589,684 @@ fn validate_g1_smooth(input_points: &[InputPoint]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+// ============================================================================
+// Skeleton Angle Preservation - Helper Functions
+// ============================================================================
+
+/// Convert a tangent vector to an angle in degrees
+///
+/// The tangent vector points in the direction of motion along a curve.
+/// We convert this to an angle measured from East (positive X-axis),
+/// counterclockwise, in degrees.
+///
+/// # Formula
+///
+/// angle = atan2(tangent.y, tangent.x) * 180 / π
+///
+/// # Returns
+///
+/// * `Some(angle)` - Successfully computed angle in degrees [-180, 180]
+/// * `None` - Degenerate tangent (zero-length vector)
+fn tangent_to_angle_degrees_skeleton(tangent: Vec2) -> Option<f64> {
+    if tangent.hypot2() < EPS {
+        return None;
+    }
+    Some(tangent.y.atan2(tangent.x).to_degrees())
+}
+
+/// Interpolate stroke width at a parameter along a skeleton segment
+///
+/// Widths are specified only at skeleton on-curve points. Between points,
+/// the width is linearly interpolated. This function computes the interpolated
+/// width at any parameter along a segment.
+///
+/// # Formula
+///
+/// w(t) = w_start * (1 - t) + w_end * t
+///
+/// where:
+/// - t ∈ [0, 1] is the parameter along the segment
+/// - w_start is the width at segment start
+/// - w_end is the width at segment end
+///
+/// # Arguments
+///
+/// * `segment`: The skeleton segment
+/// * `t`: Parameter [0, 1] along the segment
+///
+/// # Returns
+///
+/// Interpolated width (always positive)
+fn interpolate_width_at_parameter(segment: &SkeletonSegment, t: f64) -> f64 {
+    let t_clamped = t.clamp(0.0, 1.0);
+    segment.start_width * (1.0 - t_clamped) + segment.end_width * t_clamped
+}
+
+/// Compute the tangent vector of a skeleton segment at a specific parameter
+///
+/// The tangent vector represents the direction of motion along the segment.
+/// For curve fitting, we convert this to an angle via atan2.
+///
+/// # Algorithm
+///
+/// **For LineTo(p1):**
+///   - Tangent is constant: direction from p0 to p1
+///   - Derivative: p1 - p0
+///
+/// **For QuadTo(cp, p2):**
+///   - Quadratic Bézier derivative: B'(t) = 2[(1-t)(cp-p0) + t(p2-cp)]
+///   - Compute at given parameter t
+///
+/// **For CurveTo(cp1, cp2, p3):**
+///   - Cubic Bézier derivative:
+///     B'(t) = 3[(1-t)²(cp1-p0) + 2(1-t)t(cp2-cp1) + t²(p3-cp2)]
+///   - Compute at given parameter t
+///
+/// # Returns
+///
+/// Tangent vector (may be zero-length for degenerate segments)
+fn compute_segment_tangent_at_parameter(segment: &SkeletonSegment, t: f64) -> Vec2 {
+    let p0 = segment.start_point;
+
+    match segment.element {
+        PathEl::LineTo(p1) => {
+            // For line, tangent is constant
+            p1 - p0
+        }
+        PathEl::QuadTo(cp, p2) => {
+            // Quadratic Bézier derivative
+            // B'(t) = 2(1-t)(cp - p0) + 2*t(p2 - cp)
+            let deriv = 2.0 * ((1.0 - t) * (cp - p0) + t * (p2 - cp));
+            deriv
+        }
+        PathEl::CurveTo(cp1, cp2, p3) => {
+            // Cubic Bézier derivative
+            // B'(t) = 3(1-t)²(cp1-p0) + 6(1-t)t(cp2-cp1) + 3t²(p3-cp2)
+            let t2 = t * t;
+            let one_minus_t = 1.0 - t;
+            let one_minus_t2 = one_minus_t * one_minus_t;
+
+            let deriv = 3.0
+                * (one_minus_t2 * (cp1 - p0)
+                    + 2.0 * one_minus_t * t * (cp2 - cp1)
+                    + t2 * (p3 - cp2));
+            deriv
+        }
+        _ => Vec2::ZERO,
+    }
+}
+
+/// Find the closest point on a skeleton segment to an outline point
+///
+/// For the outline point to be matched to a skeleton location, we need to find
+/// the point on the skeleton that is closest to it. This is the perpendicular
+/// projection for lines, and requires numerical search for curves.
+///
+/// # Returns
+///
+/// * `(closest_point, parameter_t, distance)`
+///
+/// where:
+/// - `closest_point`: The point on the skeleton segment closest to query_point
+/// - `parameter_t`: Parameter [0, 1] along the segment where closest_point is
+/// - `distance`: Perpendicular distance from query_point to skeleton_point
+///
+/// # Algorithm
+///
+/// For **LineTo**:
+///   - Perpendicular projection is trivial
+///   - Calculate t and clamp to [0, 1]
+///
+/// For **QuadTo/CurveTo**:
+///   - Use numerical search (sample multiple t values)
+///   - Find t that minimizes distance
+fn closest_point_on_segment(segment: &SkeletonSegment, query_point: Point) -> (Point, f64, f64) {
+    let p0 = segment.start_point;
+    let p1 = segment.end_point;
+
+    match segment.element {
+        PathEl::LineTo(_) => {
+            // Simple line-point distance
+            let line_vec = p1 - p0;
+            let line_len_sq = line_vec.hypot2();
+
+            if line_len_sq < EPS {
+                // Degenerate line segment
+                return (p0, 0.0, (query_point - p0).hypot());
+            }
+
+            // Project query_point onto the line
+            let to_query = query_point - p0;
+            let t = (to_query.dot(line_vec) / line_len_sq).clamp(0.0, 1.0);
+            let closest = p0 + line_vec * t;
+            let distance = (query_point - closest).hypot();
+
+            (closest, t, distance)
+        }
+        PathEl::QuadTo(cp, p2) | PathEl::CurveTo(cp, _, p2) => {
+            // Numerical search: sample the curve at multiple points
+            // and find the parameter with minimum distance
+            const SAMPLES: usize = 20;
+            let mut best_t = 0.0;
+            let mut best_dist = f64::INFINITY;
+            let mut best_point = p0;
+
+            for i in 0..=SAMPLES {
+                let t = (i as f64) / (SAMPLES as f64);
+
+                // Evaluate curve at parameter t
+                let curve_point = match segment.element {
+                    PathEl::QuadTo(cp, p2) => {
+                        // Quadratic Bézier: B(t) = (1-t)²p0 + 2(1-t)t*cp + t²p2
+                        let one_minus_t = 1.0 - t;
+                        let coeff0 = one_minus_t * one_minus_t;
+                        let coeff1 = 2.0 * one_minus_t * t;
+                        let coeff2 = t * t;
+                        let p0_vec = p0.to_vec2();
+                        let cp_vec = cp.to_vec2();
+                        let p2_vec = p2.to_vec2();
+                        let result_vec = coeff0 * p0_vec + coeff1 * cp_vec + coeff2 * p2_vec;
+                        Point::new(result_vec.x, result_vec.y)
+                    }
+                    PathEl::CurveTo(cp1, cp2, p3) => {
+                        // Cubic Bézier: B(t) = (1-t)³p0 + 3(1-t)²t*cp1 + 3(1-t)t²*cp2 + t³p3
+                        let one_minus_t = 1.0 - t;
+                        let one_minus_t2 = one_minus_t * one_minus_t;
+                        let one_minus_t3 = one_minus_t2 * one_minus_t;
+                        let t2 = t * t;
+                        let t3 = t2 * t;
+
+                        let coeff0 = one_minus_t3;
+                        let coeff1 = 3.0 * one_minus_t2 * t;
+                        let coeff2 = 3.0 * one_minus_t * t2;
+                        let coeff3 = t3;
+
+                        let p0_vec = p0.to_vec2();
+                        let cp1_vec = cp1.to_vec2();
+                        let cp2_vec = cp2.to_vec2();
+                        let p3_vec = p3.to_vec2();
+                        let result_vec =
+                            coeff0 * p0_vec + coeff1 * cp1_vec + coeff2 * cp2_vec + coeff3 * p3_vec;
+                        Point::new(result_vec.x, result_vec.y)
+                    }
+                    _ => p0,
+                };
+
+                let dist = (query_point - curve_point).hypot();
+                if dist < best_dist {
+                    best_dist = dist;
+                    best_t = t;
+                    best_point = curve_point;
+                }
+            }
+
+            (best_point, best_t, best_dist)
+        }
+        _ => {
+            // Fallback for other elements
+            (p0, 0.0, (query_point - p0).hypot())
+        }
+    }
+}
+
+/// Extract the skeleton angle at a specific location on a skeleton segment
+///
+/// Given a skeleton segment and a parameter along that segment, this function
+/// computes the appropriate angle to use for curve fitting.
+///
+/// # Algorithm
+///
+/// Three cases:
+///
+/// 1. **At skeleton start point** (t ≈ 0.0):
+///    - Use the outgoing angle of the skeleton point
+///    - This is the direction the skeleton leaves this point
+///
+/// 2. **At skeleton end point** (t ≈ 1.0):
+///    - Use the incoming angle of the skeleton point
+///    - This is the direction the skeleton arrives at this point
+///
+/// 3. **Between skeleton points** (0.0 < t < 1.0):
+///    - Calculate the segment tangent at parameter t
+///    - Convert tangent vector to angle: atan2(tan.y, tan.x)
+///    - This represents the local curve direction at that location
+///
+/// # Arguments
+///
+/// * `segment_index` - Index into SkeletonInfo.segments
+/// * `segment_parameter_t` - Parameter along segment [0.0, 1.0]
+/// * `skeleton_info` - Pre-registered skeleton
+///
+/// # Returns
+///
+/// * `Some(angle_degrees)` - Successfully computed angle
+/// * `None` - Unable to compute (degenerate tangent, invalid index, etc.)
+///
+/// # Notes
+///
+/// - Angles are in degrees, normalized to [-180, 180]
+/// - For between-point locations, uses segment derivative (tangent vector)
+/// - Degenerate segments (zero-length tangent) return None
+fn extract_skeleton_angle_at_parameter(
+    segment_index: usize,
+    segment_parameter_t: f64,
+    skeleton_info: &SkeletonInfo,
+) -> Option<f64> {
+    if segment_index >= skeleton_info.segments.len() {
+        return None;
+    }
+
+    let segment = &skeleton_info.segments[segment_index];
+    const T_EPSILON: f64 = 0.05; // Threshold to consider t "near" 0 or 1
+
+    // Case 1: Near segment start (t ≈ 0.0) - use skeleton point's outgoing angle
+    if segment_parameter_t < T_EPSILON {
+        // This is the start point of the segment
+        // Use the outgoing angle from the angles_at_points array
+        if segment_index < skeleton_info.angles_at_points.len() {
+            return skeleton_info.angles_at_points[segment_index].1; // outgoing
+        }
+    }
+
+    // Case 2: Near segment end (t ≈ 1.0) - use skeleton point's incoming angle
+    if segment_parameter_t > (1.0 - T_EPSILON) {
+        // This is the end point of the segment
+        // Use the incoming angle from the next skeleton point
+        let next_point_index = segment_index + 1;
+        if next_point_index < skeleton_info.angles_at_points.len() {
+            return skeleton_info.angles_at_points[next_point_index].0; // incoming
+        }
+    }
+
+    // Case 3: Between skeleton points - compute tangent at parameter t
+    let tangent = compute_segment_tangent_at_parameter(segment, segment_parameter_t);
+    tangent_to_angle_degrees_skeleton(tangent)
+}
+
+// ============================================================================
+// Skeleton Angle Preservation - Main Functions
+// ============================================================================
+
+/// Register a skeleton path for angle preservation during stroke refitting
+///
+/// Call this BEFORE stroking to prepare the skeleton for later use in
+/// `refit_stroke_with_skeleton()`. This function pre-computes all necessary
+/// geometric information to make matching fast and efficient.
+///
+/// # Arguments
+///
+/// * `skeleton_path` - The original curve skeleton as a BezPath
+///   - Should contain only move, line, quad, and curve elements
+///   - No ClosePath in the middle; only at the very end if closed
+///
+/// * `skeleton_angles` - InputPoints defining the skeleton's on-curve points
+///   - Must have exactly one InputPoint per on-curve point in skeleton_path
+///   - On-curve points are: start of path + endpoint of each line/quad/curve
+///   - Each InputPoint includes incoming_angle and outgoing_angle
+///
+/// * `widths` - Stroke width at each skeleton on-curve point
+///   - Length must equal number of on-curve points
+///   - For constant width: all values the same
+///   - For variable width: different values interpolated linearly between points
+///
+/// * `is_closed` - Whether the skeleton path forms a closed loop
+///
+/// # Returns
+///
+/// * `Ok(SkeletonInfo)` - Successfully registered skeleton, ready for matching
+/// * `Err(String)` - Invalid input (mismatched lengths, empty path, etc.)
+///
+/// # Examples
+///
+/// ```ignore
+/// let skeleton = fit_curve(input_points, false)?;  // Fitted curve
+/// let skeleton_info = register_skeleton_for_preservation(
+///     &skeleton,
+///     &input_points,  // Original input points with angles
+///     &[5.0, 5.0, 5.0],  // Constant width
+///     false,  // Open path
+/// )?;
+///
+/// // Now stroke and refit using this skeleton_info...
+/// let outline = stroker.stroke(&skeleton, &widths, &style);
+/// let refitted = refit_stroke_with_skeleton(&outline, &skeleton_info)?;
+/// ```
+pub fn register_skeleton_for_preservation(
+    skeleton_path: &BezPath,
+    skeleton_angles: &[InputPoint],
+    widths: &[f64],
+    is_closed: bool,
+) -> Result<SkeletonInfo, String> {
+    // Count on-curve points in the skeleton path
+    // On-curve points are: initial MoveTo + endpoint of each LineTo/QuadTo/CurveTo
+    let elements: Vec<PathEl> = skeleton_path.iter().collect();
+
+    if elements.is_empty() {
+        return Err("Empty skeleton path".to_string());
+    }
+
+    // Count on-curve points
+    let mut on_curve_count = 0;
+    let mut has_move_to = false;
+
+    for el in &elements {
+        match el {
+            PathEl::MoveTo(_) => {
+                if !has_move_to {
+                    on_curve_count += 1;
+                    has_move_to = true;
+                }
+            }
+            PathEl::LineTo(_) | PathEl::QuadTo(_, _) | PathEl::CurveTo(_, _, _) => {
+                on_curve_count += 1;
+            }
+            PathEl::ClosePath => {
+                // ClosePath doesn't add an on-curve point
+            }
+        }
+    }
+
+    // Validate input lengths
+    if skeleton_angles.len() != on_curve_count {
+        return Err(format!(
+            "Skeleton angles length mismatch: expected {} on-curve points, got {} angles",
+            on_curve_count,
+            skeleton_angles.len()
+        ));
+    }
+
+    if widths.len() != on_curve_count {
+        return Err(format!(
+            "Widths length mismatch: expected {} on-curve points, got {} widths",
+            on_curve_count,
+            widths.len()
+        ));
+    }
+
+    // Validate widths are positive
+    for (i, &w) in widths.iter().enumerate() {
+        if w <= 0.0 {
+            return Err(format!("Width at index {} must be positive, got {}", i, w));
+        }
+    }
+
+    // Extract angles from InputPoints
+    let angles_at_points: Vec<(Option<f64>, Option<f64>)> = skeleton_angles
+        .iter()
+        .map(|inp| (inp.incoming_angle, inp.outgoing_angle))
+        .collect();
+
+    // Build skeleton segments
+    let mut segments = Vec::new();
+    let mut current_pos = Point::ZERO;
+    let mut point_index = 0;
+
+    for el in elements {
+        match el {
+            PathEl::MoveTo(p) => {
+                current_pos = p;
+                point_index += 1;
+            }
+            PathEl::LineTo(p1) => {
+                if point_index >= widths.len() {
+                    break;
+                }
+
+                let start_width = if point_index > 0 {
+                    widths[point_index - 1]
+                } else {
+                    widths[0]
+                };
+                let end_width = widths[point_index];
+
+                let start_tan = p1 - current_pos;
+                let end_tan = p1 - current_pos;
+
+                segments.push(SkeletonSegment {
+                    segment_index: point_index - 1,
+                    start_point: current_pos,
+                    end_point: p1,
+                    start_width,
+                    end_width,
+                    start_tangent: start_tan,
+                    end_tangent: end_tan,
+                    element: el.clone(),
+                });
+
+                current_pos = p1;
+                point_index += 1;
+            }
+            PathEl::QuadTo(cp, p2) => {
+                if point_index >= widths.len() {
+                    break;
+                }
+
+                let start_width = if point_index > 0 {
+                    widths[point_index - 1]
+                } else {
+                    widths[0]
+                };
+                let end_width = widths[point_index];
+
+                let start_tan = cp - current_pos;
+                let end_tan = p2 - cp;
+
+                segments.push(SkeletonSegment {
+                    segment_index: point_index - 1,
+                    start_point: current_pos,
+                    end_point: p2,
+                    start_width,
+                    end_width,
+                    start_tangent: start_tan,
+                    end_tangent: end_tan,
+                    element: el.clone(),
+                });
+
+                current_pos = p2;
+                point_index += 1;
+            }
+            PathEl::CurveTo(cp1, cp2, p3) => {
+                if point_index >= widths.len() {
+                    break;
+                }
+
+                let start_width = if point_index > 0 {
+                    widths[point_index - 1]
+                } else {
+                    widths[0]
+                };
+                let end_width = widths[point_index];
+
+                let start_tan = cp1 - current_pos;
+                let end_tan = p3 - cp2;
+
+                segments.push(SkeletonSegment {
+                    segment_index: point_index - 1,
+                    start_point: current_pos,
+                    end_point: p3,
+                    start_width,
+                    end_width,
+                    start_tangent: start_tan,
+                    end_tangent: end_tan,
+                    element: el.clone(),
+                });
+
+                current_pos = p3;
+                point_index += 1;
+            }
+            PathEl::ClosePath => {
+                // ClosePath handled, no segment created
+            }
+        }
+    }
+
+    Ok(SkeletonInfo {
+        segments,
+        angles_at_points,
+        is_closed,
+    })
+}
+
+/// Match each outline point to its source skeleton location using offset distance
+///
+/// For each point extracted from the stroke outline, this function finds the
+/// nearest skeleton geometry and validates that the distance matches the expected
+/// stroke offset. This establishes an unambiguous mapping from outline geometry
+/// back to the original skeleton.
+///
+/// # Algorithm
+///
+/// For each outline_point:
+/// 1. Linear search: find nearest skeleton segment (perpendicular distance)
+/// 2. Calculate the parameter t along that segment
+/// 3. Interpolate the stroke width w(t) at parameter t
+/// 4. Calculate expected_offset = w(t) / 2.0
+/// 5. Measure actual_distance from outline_point to nearest skeleton point
+/// 6. IF |actual_distance - expected_offset| <= tolerance (1.0):
+///    - Match is CONFIDENT, extract skeleton angle
+///    ELSE:
+///    - Match is NOT CONFIDENT, return None for this point
+///
+/// # Arguments
+///
+/// * `outline_points` - Points extracted from the stroked outline
+///   - These are InputPoints with positions and angles extracted from outline
+///   - May include points from caps, joins, and degenerate segments
+///
+/// * `skeleton_info` - Pre-registered skeleton from `register_skeleton_for_preservation()`
+///
+/// * `distance_tolerance` - How close outline point must be to expected offset (units)
+///   - Recommended: 1.0
+///   - Accounts for numerical precision and rasterization artifacts
+///
+/// # Returns
+///
+/// Vector of matches, same length as outline_points
+/// - `Some(OutlineSkeletonMatch)` - Confident match found
+/// - `None` - No confident match (point from cap/join/degenerate segment)
+///
+/// # Notes
+///
+/// - Non-confident matches are simply None; no error is raised
+/// - This allows robust handling of caps, joins, and artifacts
+/// - Points with None matches keep their outline-extracted angles
+fn match_outline_points_to_skeleton(
+    outline_points: &[InputPoint],
+    skeleton_info: &SkeletonInfo,
+    distance_tolerance: f64,
+) -> Vec<Option<OutlineSkeletonMatch>> {
+    let mut matches = Vec::new();
+
+    for outline_point in outline_points {
+        let query_point = Point::new(outline_point.x, outline_point.y);
+
+        // Linear search: find nearest skeleton segment
+        let mut best_segment_index = 0;
+        let mut best_t = 0.0;
+        let mut best_distance = f64::INFINITY;
+
+        for (i, segment) in skeleton_info.segments.iter().enumerate() {
+            let (_closest_point, t, distance) = closest_point_on_segment(segment, query_point);
+
+            if distance < best_distance {
+                best_distance = distance;
+                best_t = t;
+                best_segment_index = i;
+            }
+        }
+
+        // No segments available
+        if skeleton_info.segments.is_empty() {
+            matches.push(None);
+            continue;
+        }
+
+        let best_segment = &skeleton_info.segments[best_segment_index];
+
+        // Interpolate width at parameter t
+        let interpolated_width = interpolate_width_at_parameter(best_segment, best_t);
+        let expected_offset = interpolated_width / 2.0;
+
+        // Validate distance matches expected offset
+        let distance_delta = (best_distance - expected_offset).abs();
+        let is_confident = distance_delta <= distance_tolerance;
+
+        // Extract skeleton angle if confident match
+        let skeleton_angle = if is_confident {
+            extract_skeleton_angle_at_parameter(best_segment_index, best_t, skeleton_info)
+        } else {
+            None
+        };
+
+        // Create match result
+        let match_result = if is_confident && skeleton_angle.is_some() {
+            Some(OutlineSkeletonMatch {
+                segment_index: best_segment_index,
+                segment_parameter_t: best_t,
+                skeleton_angle,
+                distance_to_skeleton: best_distance,
+                is_confident_match: true,
+                expected_offset,
+            })
+        } else {
+            None
+        };
+
+        matches.push(match_result);
+    }
+
+    matches
+}
+
+/// Apply skeleton angles to outline points based on confident matches
+///
+/// This function updates the outline points with angles from the skeleton,
+/// but ONLY for confident matches. Points without confident matches keep
+/// their original outline-extracted angles.
+///
+/// For each outline point with a confident skeleton match:
+/// - Set incoming_angle = skeleton_angle
+/// - Set outgoing_angle = skeleton_angle
+/// - Preserve point_type (Smooth or Corner as-is)
+///
+/// Points with uncertain matches (distance mismatch) are silently ignored,
+/// preserving their outline-extracted angles. This provides graceful
+/// degradation for artifacts like caps, joins, and degenerate segments.
+///
+/// # Arguments
+///
+/// * `outline_points` - Points to modify (in-place)
+///   - Will be updated with skeleton angles where matches are confident
+///
+/// * `skeleton_matches` - Matches from `match_outline_points_to_skeleton()`
+///   - Same length as outline_points
+///   - None values are skipped silently
+///
+/// # Returns
+///
+/// Count of points modified (for debugging/monitoring)
+fn preserve_skeleton_angles_in_outline(
+    outline_points: &mut [InputPoint],
+    skeleton_matches: &[Option<OutlineSkeletonMatch>],
+) -> usize {
+    let mut modified_count = 0;
+
+    for (outline_pt, skeleton_match) in outline_points.iter_mut().zip(skeleton_matches) {
+        if let Some(match_info) = skeleton_match {
+            // Only apply skeleton angle if this is a confident match
+            if match_info.is_confident_match {
+                if let Some(angle) = match_info.skeleton_angle {
+                    outline_pt.incoming_angle = Some(angle);
+                    outline_pt.outgoing_angle = Some(angle);
+                    modified_count += 1;
+                }
+            }
+        }
+    }
+
+    modified_count
 }
 
 // ============================================================================
@@ -536,7 +1328,118 @@ pub fn refit_stroke(stroke_path: &BezPath) -> Result<BezPath, String> {
         // Validate smoothing was applied correctly
         validate_g1_smooth(&input_points)?;
 
+        // Fit the curve, abort on any failure
+        let fitted_path = fit_curve(input_points, subpath.is_closed)?;
+
+        // Combine paths while preserving closed path structure
+        if is_first_subpath {
+            combined_path = fitted_path;
+            is_first_subpath = false;
+        } else {
+            // Append entire fitted_path including MoveTo and ClosePath
+            for el in fitted_path.elements() {
+                combined_path.push(*el);
+            }
+        }
+    }
+
+    Ok(combined_path)
+}
+
+/// Refit a stroked outline while preserving angles from the original skeleton
+///
+/// This is the main entry point for stroke refitting with skeleton angle preservation.
+/// It combines all the previous steps into one convenient function.
+///
+/// The pipeline:
+/// 1. Extract subpaths from the outline
+/// 2. For each subpath, extract InputPoints with outline-derived angles
+/// 3. Match outline points back to skeleton using offset distance
+/// 4. Preserve skeleton angles for confident matches
+/// 5. Apply G1 smoothing to enforce continuity
+/// 6. Validate G1 smoothing succeeded
+/// 7. Fit final curve using Hobby's algorithm
+///
+/// If any step fails (except matching, which degrades gracefully), an error is returned.
+///
+/// # Arguments
+///
+/// * `stroke_path` - The stroked outline (BezPath from VariableStroker)
+///
+/// * `skeleton_info` - Pre-registered skeleton from `register_skeleton_for_preservation()`
+///   - Contains geometry and angles of the original skeleton
+///
+/// # Returns
+///
+/// * `Ok(BezPath)` - Successfully refitted curve with skeleton angles preserved
+/// * `Err(String)` - Error in subpath extraction, angle smoothing, or curve fitting
+///
+/// # Notes
+///
+/// - Matching failures (points without skeleton correspondence) are silently
+///   handled by preserving outline-extracted angles
+/// - This provides graceful degradation for caps, joins, and artifacts
+/// - Only confident matches (distance within 1.0 unit) get skeleton angles
+/// - Non-confident points keep outline angles as fallback
+///
+/// # Examples
+///
+/// ```ignore
+/// // Before stroking, register the skeleton
+/// let skeleton_info = register_skeleton_for_preservation(
+///     &skeleton_bezpath,
+///     &skeleton_input_points,
+///     &widths,
+///     false,  // open path
+/// )?;
+///
+/// // Stroke the path
+/// let outline = stroker.stroke(&skeleton_bezpath, &widths, &style);
+///
+/// // Refit with skeleton preservation
+/// let refitted = refit_stroke_with_skeleton(&outline, &skeleton_info)?;
+/// ```
+pub fn refit_stroke_with_skeleton(
+    stroke_path: &BezPath,
+    skeleton_info: &SkeletonInfo,
+) -> Result<BezPath, String> {
+    let subpaths = extract_subpaths(stroke_path);
+
+    if subpaths.is_empty() {
+        return Ok(BezPath::new());
+    }
+
+    let mut combined_path = BezPath::new();
+    let mut is_first_subpath = true;
+
+    for subpath in subpaths {
+        let mut input_points =
+            subpath_to_input_points(&subpath, CORNER_THRESHOLD_DEGREES, DEDUP_EPSILON);
+
+        if input_points.len() < 2 {
+            continue;
+        }
+
+        // NEW: Match outline points back to skeleton
+        let skeleton_matches = match_outline_points_to_skeleton(
+            &input_points,
+            skeleton_info,
+            SKELETON_MATCH_TOLERANCE,
+        );
+
+        // NEW: Preserve skeleton angles for confident matches
+        let preserved_count =
+            preserve_skeleton_angles_in_outline(&mut input_points, &skeleton_matches);
+
+        // Apply G1 smoothing to enforce continuity
+        g1_smooth(&mut input_points, G1_SMOOTH_THRESHOLD_DEGREES);
+
+        // Validate smoothing was applied correctly
+        validate_g1_smooth(&input_points)?;
+
         dbg!(&input_points);
+        dbg!(preserved_count);
+
         // Fit the curve, abort on any failure
         let fitted_path = fit_curve(input_points, subpath.is_closed)?;
 

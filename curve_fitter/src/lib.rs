@@ -11,8 +11,11 @@ pub mod var_offset;
 pub mod var_stroke;
 pub mod var_stroker;
 
-// Re-export the main stroke refitter function
-pub use stroke_refitter::refit_stroke;
+// Re-export the main stroke refitter functions
+pub use stroke_refitter::{
+    OutlineSkeletonMatch, SkeletonInfo, refit_stroke, refit_stroke_with_skeleton,
+    register_skeleton_for_preservation,
+};
 
 #[derive(Debug, Clone)]
 pub struct InputPoint {
