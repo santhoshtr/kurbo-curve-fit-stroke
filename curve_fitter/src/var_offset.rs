@@ -6,11 +6,13 @@ struct VariableCubicOffset {
     /// The cubic being offset.
     c: CubicBez,
     /// The derivative of `c`.
+    #[allow(dead_code)]
     q: QuadBez,
     /// Start width (at t=0)
     w0: f64,
     /// End width (at t=1)
     w1: f64,
+    #[allow(dead_code)]
     tolerance: f64,
 }
 

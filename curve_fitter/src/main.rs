@@ -63,7 +63,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn run_single_test(runner: &TestRunner, path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn run_single_test(
+    runner: &TestRunner,
+    path: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
     if !path.exists() {
         eprintln!("Test file not found: {}", path.display());
         std::process::exit(1);

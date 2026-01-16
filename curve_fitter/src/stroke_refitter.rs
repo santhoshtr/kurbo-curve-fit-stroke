@@ -126,6 +126,7 @@ pub struct SkeletonInfo {
     point_types: Vec<PointType>,
 
     /// Whether the skeleton path is closed
+    #[allow(dead_code)]
     is_closed: bool,
 }
 
@@ -162,6 +163,7 @@ impl SkeletonInfo {
 struct SkeletonSegment {
     /// Index of this segment in the original path
     /// Corresponds to the on-curve point where this segment ends
+    #[allow(dead_code)]
     segment_index: usize,
 
     /// Start point of this segment (on-curve)
@@ -179,9 +181,11 @@ struct SkeletonSegment {
     end_width: f64,
 
     /// Tangent vector at segment start (cached for angle extraction)
+    #[allow(dead_code)]
     start_tangent: Vec2,
 
     /// Tangent vector at segment end (cached for angle extraction)
+    #[allow(dead_code)]
     end_tangent: Vec2,
 
     /// The actual path element (LineTo, QuadTo, CurveTo)
@@ -240,6 +244,7 @@ pub struct OutlineSkeletonMatch {
 /// Internal representation of a path segment with tangent information
 #[derive(Debug, Clone)]
 struct SegmentInfo {
+    #[allow(dead_code)]
     start_point: Point,
     end_point: Point,
     start_tangent: Option<Vec2>, // outgoing from start
@@ -470,6 +475,7 @@ fn extract_subpaths(stroke_path: &BezPath) -> Vec<Subpath> {
 
 /// Debug helper to print detailed angle extraction information
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 fn debug_angle_extraction(
     segment_index: usize,
     segment_end_point: Point,
@@ -640,7 +646,7 @@ fn subpath_to_input_points(
 ///
 /// # Returns
 /// * Number of points that were smoothed (for validation)
-fn g1_smooth(input_points: &mut Vec<InputPoint>, threshold_degrees: f64) -> usize {
+fn g1_smooth(input_points: &mut [InputPoint], threshold_degrees: f64) -> usize {
     let mut smoothed_count = 0;
 
     for point in input_points.iter_mut() {
@@ -779,16 +785,16 @@ fn detect_misclassified_corners(
         }
 
         // Check if this Corner has a confident Smooth match in skeleton
-        if let Some(ref match_info) = skeleton_matches[i] {
-            if match_info.is_confident_match {
-                // Check what type the skeleton point is
-                if let Some(skeleton_type) =
-                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
-                {
-                    // If skeleton is Smooth, this Corner is likely a false positive
-                    if matches!(skeleton_type, PointType::Smooth) {
-                        misclassified.push(i);
-                    }
+        if let Some(ref match_info) = skeleton_matches[i]
+            && match_info.is_confident_match
+        {
+            // Check what type the skeleton point is
+            if let Some(skeleton_type) =
+                skeleton_info.get_point_type_at_segment(match_info.segment_index)
+            {
+                // If skeleton is Smooth, this Corner is likely a false positive
+                if matches!(skeleton_type, PointType::Smooth) {
+                    misclassified.push(i);
                 }
             }
         }
@@ -818,24 +824,24 @@ fn apply_skeleton_correction_to_failures(
         }
 
         // Check if we have a confident match for this point
-        if let Some(ref match_info) = skeleton_matches[idx] {
-            if match_info.is_confident_match {
-                // Extract skeleton angle from the match
-                if let Some(skeleton_angle) = match_info.skeleton_angle {
-                    // Apply skeleton angle to both incoming and outgoing
-                    outline_points[idx].incoming_angle = Some(skeleton_angle);
-                    outline_points[idx].outgoing_angle = Some(skeleton_angle);
+        if let Some(ref match_info) = skeleton_matches[idx]
+            && match_info.is_confident_match
+        {
+            // Extract skeleton angle from the match
+            if let Some(skeleton_angle) = match_info.skeleton_angle {
+                // Apply skeleton angle to both incoming and outgoing
+                outline_points[idx].incoming_angle = Some(skeleton_angle);
+                outline_points[idx].outgoing_angle = Some(skeleton_angle);
 
-                    // Override point type with skeleton's type
-                    if let Some(skeleton_type) =
-                        skeleton_info.get_point_type_at_segment(match_info.segment_index)
-                    {
-                        outline_points[idx].point_type = skeleton_type;
-                    }
-
-                    corrected_count += 1;
-                    continue;
+                // Override point type with skeleton's type
+                if let Some(skeleton_type) =
+                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
+                {
+                    outline_points[idx].point_type = skeleton_type;
                 }
+
+                corrected_count += 1;
+                continue;
             }
         }
 
@@ -1434,36 +1440,34 @@ pub fn register_skeleton_for_preservation(
     let mut angles_at_points: Vec<(Option<f64>, Option<f64>)> = Vec::new();
 
     // Extract segments to compute tangents if needed
-    let segments = extract_subpaths(&skeleton_path);
-    let mut angle_idx = 0;
+    let segments = extract_subpaths(skeleton_path);
 
-    for skeleton_point in skeleton_angles {
+    for (angle_idx, skeleton_point) in skeleton_angles.iter().enumerate() {
         let mut incoming = skeleton_point.incoming_angle;
         let mut outgoing = skeleton_point.outgoing_angle;
 
         // If angles are not provided, compute them from the skeleton curve
-        if incoming.is_none() || outgoing.is_none() {
-            if let Some(subpath) = segments.first() {
-                // Compute incoming angle at this point
-                if incoming.is_none() && angle_idx > 0 && angle_idx < subpath.segments.len() {
-                    let segment = &subpath.segments[angle_idx - 1];
-                    if let Some(tangent) = segment.end_tangent {
-                        incoming = tangent_to_angle_degrees_skeleton(tangent);
-                    }
+        if (incoming.is_none() || outgoing.is_none())
+            && let Some(subpath) = segments.first()
+        {
+            // Compute incoming angle at this point
+            if incoming.is_none() && angle_idx > 0 && angle_idx < subpath.segments.len() {
+                let segment = &subpath.segments[angle_idx - 1];
+                if let Some(tangent) = segment.end_tangent {
+                    incoming = tangent_to_angle_degrees_skeleton(tangent);
                 }
+            }
 
-                // Compute outgoing angle at this point
-                if outgoing.is_none() && angle_idx < subpath.segments.len() {
-                    let segment = &subpath.segments[angle_idx];
-                    if let Some(tangent) = segment.start_tangent {
-                        outgoing = tangent_to_angle_degrees_skeleton(tangent);
-                    }
+            // Compute outgoing angle at this point
+            if outgoing.is_none() && angle_idx < subpath.segments.len() {
+                let segment = &subpath.segments[angle_idx];
+                if let Some(tangent) = segment.start_tangent {
+                    outgoing = tangent_to_angle_degrees_skeleton(tangent);
                 }
             }
         }
 
         angles_at_points.push((incoming, outgoing));
-        angle_idx += 1;
     }
 
     // Extract point types from InputPoints
@@ -1601,8 +1605,7 @@ pub fn register_skeleton_for_preservation(
 /// 5. Measure actual_distance from outline_point to nearest skeleton point
 /// 6. IF |actual_distance - expected_offset| <= tolerance (1.0):
 ///    - Match is CONFIDENT, extract skeleton angle
-///    ELSE:
-///    - Match is NOT CONFIDENT, return None for this point
+/// - ELSE: Match is NOT CONFIDENT, return None for this point
 ///
 /// # Arguments
 ///
@@ -1693,91 +1696,6 @@ fn match_outline_points_to_skeleton(
     }
 
     matches
-}
-
-/// Apply skeleton angles to outline points based on confident matches
-///
-/// This function updates the outline points with angles from the skeleton,
-/// but ONLY for confident matches. Points without confident matches keep
-/// their original outline-extracted angles.
-///
-/// For each outline point with a confident skeleton match:
-/// - Set incoming_angle = skeleton_angle
-/// - Set outgoing_angle = skeleton_angle
-/// - Preserve point_type (Smooth or Corner as-is)
-///
-/// Points with uncertain matches (distance mismatch) are silently ignored,
-/// preserving their outline-extracted angles. This provides graceful
-/// degradation for artifacts like caps, joins, and degenerate segments.
-///
-/// # Arguments
-///
-/// * `outline_points` - Points to modify (in-place)
-///   - Will be updated with skeleton angles where matches are confident
-///
-/// * `skeleton_matches` - Matches from `match_outline_points_to_skeleton()`
-///   - Same length as outline_points
-///   - None values are skipped silently
-///
-/// # Returns
-///
-/// Count of points modified (for debugging/monitoring)
-fn preserve_skeleton_angles_in_outline(
-    outline_points: &mut [InputPoint],
-    skeleton_matches: &[Option<OutlineSkeletonMatch>],
-) -> usize {
-    let mut modified_count = 0;
-
-    for (outline_pt, skeleton_match) in outline_points.iter_mut().zip(skeleton_matches) {
-        if let Some(match_info) = skeleton_match {
-            // Only apply skeleton angle if this is a confident match
-            if match_info.is_confident_match
-                && let Some(angle) = match_info.skeleton_angle
-            {
-                outline_pt.incoming_angle = Some(angle);
-                outline_pt.outgoing_angle = Some(angle);
-                modified_count += 1;
-            }
-        }
-    }
-
-    modified_count
-}
-
-/// Preserve skeleton angles AND point types in outline points
-///
-/// This version applies both skeleton angles and skeleton point types to confident matches.
-/// Used by refit_stroke_with_skeleton() which trusts the skeleton completely.
-fn preserve_skeleton_angles_and_types_in_outline(
-    outline_points: &mut [InputPoint],
-    skeleton_matches: &[Option<OutlineSkeletonMatch>],
-    skeleton_info: &SkeletonInfo,
-) -> usize {
-    let mut modified_count = 0;
-
-    for (outline_pt, skeleton_match) in outline_points.iter_mut().zip(skeleton_matches) {
-        if let Some(match_info) = skeleton_match {
-            // Only apply skeleton values if this is a confident match
-            if match_info.is_confident_match
-                && let Some(angle) = match_info.skeleton_angle
-            {
-                // Apply skeleton angle
-                outline_pt.incoming_angle = Some(angle);
-                outline_pt.outgoing_angle = Some(angle);
-
-                // Apply skeleton point type
-                if let Some(skeleton_type) =
-                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
-                {
-                    outline_pt.point_type = skeleton_type;
-                }
-
-                modified_count += 1;
-            }
-        }
-    }
-
-    modified_count
 }
 
 // ============================================================================

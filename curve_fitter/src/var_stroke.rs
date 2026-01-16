@@ -78,20 +78,6 @@ pub struct VariableStrokeCtx {
 }
 
 impl VariableStrokeCtx {
-    fn reset(&mut self) {
-        self.output.truncate(0);
-        self.forward_path.truncate(0);
-        self.backward_path.truncate(0);
-        self.start_pt = Point::default();
-        self.start_norm = Vec2::default();
-        self.start_tan = Vec2::default();
-        self.start_width = 0.0;
-        self.last_pt = Point::default();
-        self.last_tan = Vec2::default();
-        self.last_width = 0.0;
-        self.join_thresh = 0.0;
-    }
-
     pub fn output(&self) -> &BezPath {
         &self.output
     }

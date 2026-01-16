@@ -98,6 +98,7 @@ impl TwoParamCurve {
     /// - t: parameter value (0 or 1 for endpoints)
     /// - th: tangent angle at the point
     /// - k: desired curvature (None means use default 1/3 scaling)
+    ///
     /// Returns: scale factor to apply to the derivative
     fn deriv_scale(&self, cb: &CubicBez, t: f64, th: f64, k: Option<f64>) -> f64 {
         // If no curvature specified, use default scale

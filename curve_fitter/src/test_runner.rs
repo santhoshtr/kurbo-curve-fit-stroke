@@ -19,9 +19,11 @@ use crate::{
 /// Test execution engine
 pub struct TestRunner {
     /// Whether to print detailed validation output
+    #[allow(dead_code)]
     verbose: bool,
 
     /// Whether to skip G1 continuity validation
+    #[allow(dead_code)]
     skip_validation: bool,
 
     /// Directory for output SVG files

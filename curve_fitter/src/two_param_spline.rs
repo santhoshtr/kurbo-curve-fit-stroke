@@ -118,6 +118,7 @@ impl TwoParamSpline {
         let mut ths0 = self.get_ths(0);
         let mut ak0 = curve.compute_curvature(ths0.th0, ths0.th1);
 
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n - 2 {
             let ths1 = self.get_ths(i + 1);
             let ak1 = curve.compute_curvature(ths1.th0, ths1.th1);
@@ -142,6 +143,7 @@ impl TwoParamSpline {
 
         // Apply corrections with damping
         let scale = (0.25 * (iter + 1) as f64).tanh();
+        #[allow(clippy::needless_range_loop)]
         for i in 0..n - 2 {
             self.ths[i + 1] += scale * corrections[i];
         }
