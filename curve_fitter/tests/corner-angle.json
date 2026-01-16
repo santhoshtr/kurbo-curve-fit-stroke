@@ -4,17 +4,41 @@
   "test_type": "fit_and_stroke",
   "input": {
     "points": [
-      {"x": 50.0, "y": 100.0, "point_type": "Smooth"},
-      {"x": 100.0, "y": 100.0, "point_type": "Smooth", "incoming_angle": 0.0, "outgoing_angle": 90.0},
-      {"x": 100.0, "y": 50.0, "point_type": "Smooth"}
+      {
+        "x": 50.0,
+        "y": 100.0,
+        "point_type": "Smooth"
+      },
+      {
+        "x": 100.0,
+        "y": 100.0,
+        "point_type": "Smooth",
+        "incoming_angle": 0.0,
+        "outgoing_angle": 90.0
+      },
+      {
+        "x": 100.0,
+        "y": 50.0,
+        "point_type": "Smooth"
+      }
     ],
     "is_closed": false
   },
   "stroke": {
-    "widths": [5.0, 5.0, 5.0],
+    "widths": [
+      5.0,
+      5.0,
+      5.0
+    ],
     "tolerance": 0.1
   },
-  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton_correction"],
+  "operations": [
+    "fit_curve",
+    "stroke",
+    "refit_stroke",
+    "register_skeleton",
+    "refit_stroke_with_skeleton"
+  ],
   "outputs": {
     "fitted_curve": "corner-angle-fitted",
     "stroke_outline": "corner-angle-stroke",

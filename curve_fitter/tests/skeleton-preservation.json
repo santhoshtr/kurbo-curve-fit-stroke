@@ -4,17 +4,39 @@
   "test_type": "skeleton_preservation",
   "input": {
     "points": [
-      {"x": 50.0, "y": 100.0, "point_type": "Smooth"},
-      {"x": 150.0, "y": 50.0, "point_type": "Smooth"},
-      {"x": 250.0, "y": 150.0, "point_type": "Smooth"}
+      {
+        "x": 50.0,
+        "y": 100.0,
+        "point_type": "Smooth"
+      },
+      {
+        "x": 150.0,
+        "y": 50.0,
+        "point_type": "Smooth"
+      },
+      {
+        "x": 250.0,
+        "y": 150.0,
+        "point_type": "Smooth"
+      }
     ],
     "is_closed": false
   },
   "stroke": {
-    "widths": [10.0, 15.0, 10.0],
+    "widths": [
+      10.0,
+      15.0,
+      10.0
+    ],
     "tolerance": 0.1
   },
-  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton_correction"],
+  "operations": [
+    "fit_curve",
+    "stroke",
+    "refit_stroke",
+    "register_skeleton",
+    "refit_stroke_with_skeleton"
+  ],
   "outputs": {
     "fitted_curve": "skeleton-pres-fitted",
     "stroke_outline": "skeleton-pres-stroke",
