@@ -14,11 +14,11 @@
     "widths": [10.0, 15.0, 10.0],
     "tolerance": 0.1
   },
-  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton"],
+  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton_correction"],
   "outputs": {
     "fitted_curve": "skeleton-pres-fitted",
     "stroke_outline": "skeleton-pres-stroke",
     "refitted_stroke": "skeleton-pres-outline",
-    "skeleton_preserved": "skeleton-pres-skeleton"
+    "skeleton_corrected": "skeleton-pres-skeleton-correction"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "wave-simple",
-  "description": "Simple 4-point wave curve with variable-width stroke and dual refitting strategies",
+  "description": "Simple 4-point wave curve with variable-width stroke and selective skeleton correction",
   "test_type": "fit_and_stroke",
   "input": {
     "points": [
@@ -12,14 +12,14 @@
     "is_closed": false
   },
   "stroke": {
-    "widths": [10.0, 15.0, 40.0, 25.0],
+    "widths": [10.0, 15.0, 80.0, 25.0],
     "tolerance": 0.1
   },
-  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton"],
+  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton_correction"],
   "outputs": {
     "fitted_curve": "wave-simple-fitted",
     "stroke_outline": "wave-simple-stroke",
     "refitted_stroke": "wave-simple-refitted",
-    "skeleton_preserved": "wave-simple-skeleton"
+    "skeleton_corrected": "wave-simple-skeleton-correction"
   }
 }

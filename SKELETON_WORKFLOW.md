@@ -2,11 +2,22 @@
 
 ## Overview
 
-The curve-fit library now supports two distinct strategies for refitting stroked paths:
+The curve-fit library now supports **two distinct strategies** for refitting stroked paths:
 
 1. **Outline-Based Refitting** (`refit_stroke`): Extracts curves purely from the stroke outline geometry
-2. **Skeleton-Aware Refitting** (`refit_stroke_with_skeleton`): Uses the original skeleton curve to guide refitting, preserving design intent
+2. **Selective Skeleton Correction** (`refit_stroke_with_skeleton_correction`): **RECOMMENDED** Uses skeleton as error correction tool only
 
+### Quick Comparison
+
+| Aspect | Outline-Based | Selective (⭐) |
+|--------|---------------|-----------------|
+| **Visual Quality** | ⭐⭐⭐⭐⭐ Smoothest | ⭐⭐⭐⭐⭐ **Best** |
+| **Skeleton Fidelity** | ⭐ Low | ⭐⭐⭐⭐ Excellent |
+| **Complexity** | Simple | Medium |
+| **Recommended Use** | General | Production ⭐ |
+| **Function** | `refit_stroke()` | `refit_stroke_with_skeleton_correction()` |
+
+---
 ## Problem Context
 
 When a path is stroked with variable widths, the resulting outline geometry becomes distorted compared to the skeleton (original curve). This distortion is expected and normal, but it can cause:
@@ -58,7 +69,7 @@ let refitted = refit_stroke(&stroke_path, &config)?;
 
 ---
 
-### Strategy 2: Skeleton-Aware Refitting
+### Strategy 2: Selective Skeleton Correction (RECOMMENDED)
 
 ```rust
 // Step 1: Register original skeleton for preservation
@@ -69,9 +80,9 @@ let skeleton_info = register_skeleton_for_preservation(
     is_closed,
 )?;
 
-// Step 2: Refit stroke using skeleton as guide
+// Step 2: Refit stroke using selective skeleton correction
 let config = StrokeRefitterConfig::new();
-let refitted = refit_stroke_with_skeleton(
+let refitted = refit_stroke_with_skeleton_correction(
     &stroke_path,
     &skeleton_info,
     &config
@@ -79,29 +90,49 @@ let refitted = refit_stroke_with_skeleton(
 ```
 
 **How it works:**
-1. Extract on-curve points from stroke outline (with outline-derived angles)
-2. For each outline point, match it back to skeleton location using offset distance
-3. If match is confident (offset distance matches expected stroke width ±1.0 unit):
-   - Use skeleton's original angle instead of outline angle
-4. Apply G1 smoothing
-5. Fit final curve
+1. Extract on-curve points from stroke outline with outline-derived angles
+2. Classify point types (Corner/Smooth) based on angle differences
+3. Apply G1 smoothing to enforce continuity
+4. **Detect which Smooth points STILL fail G1 continuity** (tolerance: 0.5°)
+5. For failing points ONLY:
+   - Match to skeleton location using offset distance
+   - If confident match found: replace angles with skeleton angles
+   - If no match: keep outline angles as-is
+6. Re-apply G1 smoothing to propagate corrections to neighbors
+7. Fit final curve using Hobby's algorithm
 
 **Strengths:**
-- Preserves original design intent from skeleton
-- Avoids false corner detection from stroking artifacts
-- Produces curves faithful to original skeleton
-- Excellent for intentional corners and explicit angle constraints
+- **Combines best of both approaches**: outline smoothness + skeleton accuracy
+- Preserves natural geometry of outline for well-behaved points
+- Uses skeleton as **error correction tool**, not primary source
+- Produces smoother curves than pure skeleton replacement
+- Fewer false corner detections than pure outline-based
+- Excellent balance of quality and fidelity
 
 **Limitations:**
 - Requires original skeleton curve and widths
-- More complex to set up
-- Requires width information at each point
+- More complex than outline-based approach
+- Points with G1 failures that don't match skeleton are left as-is
 
 **When to use:**
-- Production workflows where original curves are preserved
-- Variable-width stroking (where distortions are significant)
-- When you want to round-trip a stroke: fit → stroke → refit → similar to original fit
-- Preserving explicit tangent angle constraints (MetaPost style)
+- **Production workflows** - best overall quality
+- Variable-width stroking where distortions cause problems
+- When you want the smoothest possible result with skeleton awareness
+- High-quality font/glyph rendering
+- Round-trip workflows: fit → stroke → refit → high fidelity to original
+
+**Visual Quality Comparison:**
+```
+Pure Outline    | Smooth natural curves, may have false corners
+                | Good for simple cases, excellent visual quality
+                |
+Selective Corr. | Smooth curves with error correction
+(RECOMMENDED)   | Fixes specific problems, preserves overall smoothness
+                | Best visual + best accuracy
+                |
+Full Skeleton   | Preserves skeleton intent, may look "forced"
+                | Good skeleton fidelity, potentially less smooth
+```
 
 ---
 
@@ -120,27 +151,29 @@ let refitted = refit_stroke_with_skeleton(
 }
 ```
 
-### Pattern 2: Skeleton-Aware Workflow (Recommended for Production)
+### Pattern 2: Production Workflow (Selective Skeleton Correction - Recommended)
 
 ```json
 {
   "operations": [
-    "fit_curve",           // Fit original curve
-    "stroke",              // Generate stroke outline
-    "refit_stroke",        // Also try outline-based refitting
-    "register_skeleton",   // Register skeleton for angle preservation
-    "refit_with_skeleton"  // Skeleton-aware refitting
+    "fit_curve",                       // Fit original curve
+    "stroke",                          // Generate stroke outline
+    "refit_stroke",                    // Baseline outline-based refitting
+    "register_skeleton",               // Register skeleton for correction
+    "refit_with_skeleton_correction"   // Apply selective skeleton correction
   ],
   "outputs": {
     "fitted_curve": "fitted",
     "stroke_outline": "stroke",
     "refitted_stroke": "refitted-outline",
-    "skeleton_preserved": "refitted-skeleton"
+    "skeleton_corrected": "refitted-skeleton-corrected"
   }
 }
 ```
 
-This pattern lets you **compare both strategies** and see the difference.
+This pattern generates both outputs, allowing validation:
+- **refitted-outline**: Pure outline-based (baseline for comparison)
+- **refitted-skeleton-corrected**: Selective correction (recommended for production) ⭐
 
 ---
 
@@ -150,8 +183,9 @@ Seven comprehensive test cases demonstrate various scenarios:
 
 ### 1. **wave-simple** - Variable-Width Stroking
 - 4-point smooth wave with widths [10.0, 15.0, 40.0, 25.0]
-- Tests both strategies
+- Tests both strategies (outline-based and selective correction)
 - Shows skeleton preservation with variable widths
+- Key test for demonstrating selective correction advantages
 
 ### 2. **wave-constant-width** - Constant-Width Stroking
 - Same wave with uniform width [5.0, 5.0, 5.0, 5.0]
@@ -161,7 +195,7 @@ Seven comprehensive test cases demonstrate various scenarios:
 ### 3. **letter-o** - Closed Path
 - Circular O-shape with variable widths
 - Tests closed path handling
-- Outline-based refitting (skeleton needs special handling for closed paths)
+- Outline-based refitting only
 
 ### 4. **straight-line** - Simplest Case
 - Diagonal line from (0,0) to (100,100)
@@ -171,17 +205,17 @@ Seven comprehensive test cases demonstrate various scenarios:
 ### 5. **metapost-style** - Explicit Tangent Angles
 - Curve with explicit incoming/outgoing angles
 - Tests constraint preservation
-- Skeleton workflow preserves these constraints
+- Both strategies preserve these constraints
 
 ### 6. **corner-angle** - Intentional Corners
 - Explicit 90° corner with different incoming/outgoing angles
 - Tests corner detection and preservation
-- Skeleton workflow respects explicit corners
+- Both strategies respect explicit corners
 
 ### 7. **skeleton-preservation** - Focused Comparison
 - Dedicated test comparing both strategies side-by-side
 - Open path with variable widths
-- Demonstrates skeleton-aware advantages
+- Demonstrates selective correction advantages
 
 ---
 
@@ -302,17 +336,17 @@ Pre-computes skeleton information for angle preservation. Call this **before** s
 
 ---
 
-### Skeleton-Aware Refitting
+### Selective Skeleton Correction Refitting
 
 ```rust
-pub fn refit_stroke_with_skeleton(
+pub fn refit_stroke_with_skeleton_correction(
     stroke_path: &BezPath,
     skeleton_info: &SkeletonInfo,
     config: &StrokeRefitterConfig,
 ) -> Result<BezPath, String>
 ```
 
-Refits a stroke outline while preserving angles from the original skeleton.
+Refits a stroke outline using selective skeleton correction as an error correction tool.
 
 **Arguments:**
 - `stroke_path`: The stroked outline to refit
@@ -320,11 +354,11 @@ Refits a stroke outline while preserving angles from the original skeleton.
 - `config`: Refitting configuration
 
 **Returns:**
-- `BezPath`: Refitted curve with skeleton angles preserved
+- `BezPath`: Refitted curve with selective skeleton corrections applied
 
 ---
 
-## Workflow Example: Round-Trip Fidelity
+## Workflow Example: Production Refitting
 
 ```rust
 // User provides input points with design intent
@@ -349,12 +383,13 @@ let skeleton_info = register_skeleton_for_preservation(
     is_closed,
 )?;
 
-// Step 4: Refit using skeleton guidance
+// Step 4: Refit using selective skeleton correction (RECOMMENDED)
 let config = StrokeRefitterConfig::new();
-let refitted = refit_stroke_with_skeleton(&stroke, &skeleton_info, &config)?;
+let refitted = refit_stroke_with_skeleton_correction(&stroke, &skeleton_info, &config)?;
 
 // Result: refitted ≈ skeleton (faithful to design intent)
-//         refitted != outline_refit (which may have false corners)
+//         Better than pure outline refitting (fewer false corners)
+//         Smoother than full skeleton replacement
 ```
 
 ---

@@ -13,7 +13,7 @@ use crate::var_stroke::VariableStroke;
 use crate::var_stroker::VariableStroker;
 use crate::{
     InputPoint, PointType, SkeletonInfo, StrokeRefitterConfig, fit_curve, refit_stroke,
-    refit_stroke_with_skeleton, register_skeleton_for_preservation,
+    refit_stroke_with_skeleton_correction, register_skeleton_for_preservation,
 };
 
 /// Test execution engine
@@ -146,28 +146,29 @@ impl TestRunner {
                     intermediate_results.skeleton_info = Some(skeleton_info);
                     println!("    Skeleton registered for angle preservation");
                 }
-                "refit_with_skeleton" => {
-                    println!("  → refit_with_skeleton");
+                "refit_with_skeleton_correction" => {
+                    println!("  → refit_with_skeleton_correction");
                     let stroke_path =
                         intermediate_results.stroke_path.as_ref().ok_or_else(|| {
-                            "stroke must be executed before refit_with_skeleton".to_string()
+                            "stroke must be executed before refit_with_skeleton_correction"
+                                .to_string()
                         })?;
 
                     let skeleton_info =
                         intermediate_results.skeleton_info.as_ref().ok_or_else(|| {
-                            "register_skeleton must be executed before refit_with_skeleton"
+                            "register_skeleton must be executed before refit_with_skeleton_correction"
                                 .to_string()
                         })?;
 
                     let config = StrokeRefitterConfig::new();
-                    let skeleton_preserved =
-                        refit_stroke_with_skeleton(stroke_path, skeleton_info, &config)?;
+                    let skeleton_corrected =
+                        refit_stroke_with_skeleton_correction(stroke_path, skeleton_info, &config)?;
 
-                    intermediate_results.skeleton_preserved = Some(skeleton_preserved.clone());
+                    intermediate_results.skeleton_corrected = Some(skeleton_corrected.clone());
 
                     // Write SVG if output configured
-                    if let Some(filename) = &test_case.outputs.skeleton_preserved {
-                        self.write_svg(&format!("{}.svg", filename), &skeleton_preserved)?;
+                    if let Some(filename) = &test_case.outputs.skeleton_corrected {
+                        self.write_svg(&format!("{}.svg", filename), &skeleton_corrected)?;
                         println!("    Written: outputs/{}.svg", filename);
                     }
                 }
@@ -224,7 +225,7 @@ struct IntermediateResults {
     stroke_widths: Option<Vec<f64>>,
     refitted_path: Option<BezPath>,
     skeleton_info: Option<SkeletonInfo>,
-    skeleton_preserved: Option<BezPath>,
+    skeleton_corrected: Option<BezPath>,
 }
 
 /// Convert a BezPath to SVG string

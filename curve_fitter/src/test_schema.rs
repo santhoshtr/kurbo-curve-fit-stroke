@@ -88,9 +88,9 @@ pub struct OutputConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub refitted_stroke: Option<String>,
 
-    /// Output filename for skeleton-preserved result (without extension)
+    /// Output filename for skeleton-corrected result (without extension)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub skeleton_preserved: Option<String>,
+    pub skeleton_corrected: Option<String>,
 }
 
 fn default_tolerance() -> f64 {

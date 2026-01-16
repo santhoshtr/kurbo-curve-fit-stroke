@@ -9,7 +9,7 @@ use kurbo::{BezPath, PathEl, Point, Vec2};
 
 const DEDUP_EPSILON: f64 = 1e-6;
 const EPS: f64 = 1e-12;
-const SKELETON_MATCH_TOLERANCE: f64 = 1.0;
+const SKELETON_MATCH_TOLERANCE: f64 = 2.0;
 
 // ============================================================================
 // Configuration
@@ -107,6 +107,7 @@ impl Default for StrokeRefitterConfig {
 /// # Fields
 /// * `segments` - Pre-computed skeleton segments with geometry and width info
 /// * `angles_at_points` - Incoming/outgoing angles at each on-curve skeleton point
+/// * `point_types` - Point type (Corner/Smooth) at each on-curve skeleton point
 /// * `is_closed` - Whether the original skeleton path was closed
 #[derive(Debug, Clone)]
 pub struct SkeletonInfo {
@@ -119,8 +120,38 @@ pub struct SkeletonInfo {
     /// Length = number of on-curve points
     angles_at_points: Vec<(Option<f64>, Option<f64>)>,
 
+    /// Point types (Corner/Smooth) at each on-curve skeleton point
+    /// Index corresponds to on-curve points in the original skeleton path
+    /// Length = number of on-curve points
+    point_types: Vec<PointType>,
+
     /// Whether the skeleton path is closed
     is_closed: bool,
+}
+
+impl SkeletonInfo {
+    /// Get the point type at a specific skeleton segment endpoint
+    ///
+    /// The segment_index corresponds to the endpoint of that segment in the point_types array.
+    /// Because point_types includes the initial MoveTo point at index 0, we need to add 1.
+    ///
+    /// For example:
+    /// - segment 0 (first segment) ends at point 1 → point_types[1]
+    /// - segment 1 ends at point 2 → point_types[2]
+    /// - segment 2 ends at point 3 → point_types[3]
+    ///
+    /// # Arguments
+    /// * `segment_index` - Index of the segment (0-based)
+    ///
+    /// # Returns
+    /// * `Some(PointType)` - The point type at that segment endpoint
+    /// * `None` - If the index is out of bounds
+    fn get_point_type_at_segment(&self, segment_index: usize) -> Option<PointType> {
+        // segment_index + 1 maps to the point_types array because:
+        // - segment 0 ends at point 1
+        // - segment 1 ends at point 2, etc.
+        self.point_types.get(segment_index + 1).cloned()
+    }
 }
 
 /// One segment of the skeleton path with pre-computed geometry
@@ -668,6 +699,151 @@ fn validate_g1_smooth(input_points: &[InputPoint]) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Detect which Smooth points fail G1 continuity
+///
+/// Examines all Smooth points in the input and identifies those where the incoming
+/// and outgoing angles differ by more than the specified tolerance. These are the
+/// points that would benefit from skeleton-based error correction.
+///
+/// # Arguments
+///
+/// * `input_points` - The input points to examine
+/// * `tolerance_degrees` - Maximum angle difference (in degrees) to consider as passing
+///
+/// # Returns
+///
+/// Vector of indices (into input_points) of points that fail G1 continuity check.
+/// Indices are sorted in ascending order.
+///
+/// # Example
+///
+/// If point 2 and point 5 fail the check, returns vec![2, 5]
+fn detect_g1_failures(input_points: &[InputPoint], tolerance_degrees: f64) -> Vec<usize> {
+    let mut failures = Vec::new();
+
+    for (i, point) in input_points.iter().enumerate() {
+        // Only check Smooth points; Corners are allowed to have mismatched angles
+        if !matches!(point.point_type, PointType::Smooth) {
+            continue;
+        }
+
+        match (point.incoming_angle, point.outgoing_angle) {
+            (Some(incoming), Some(outgoing)) => {
+                let diff = angle_difference_degrees(incoming, outgoing).abs();
+                if diff > tolerance_degrees {
+                    failures.push(i);
+                }
+            }
+            (None, None) => {
+                // Both None is acceptable for endpoints
+            }
+            _ => {
+                // One None, one Some would indicate a logic error; skip
+            }
+        }
+    }
+
+    failures
+}
+
+/// Detect Corner points that should actually be Smooth based on skeleton
+///
+/// This function identifies points that were classified as Corners during outline extraction
+/// but match to Smooth points in the skeleton. These are likely false positives caused by
+/// stroking artifacts or numerical precision issues, and should be corrected to Smooth.
+///
+/// # Arguments
+///
+/// * `outline_points` - The extracted outline points
+/// * `skeleton_info` - Pre-computed skeleton information for matching
+///
+/// # Returns
+///
+/// Vector of indices of Corner points that have confident Smooth matches in skeleton
+fn detect_misclassified_corners(
+    outline_points: &[InputPoint],
+    skeleton_info: &SkeletonInfo,
+) -> Vec<usize> {
+    let mut misclassified = Vec::new();
+
+    // Match all outline points to skeleton
+    let skeleton_matches =
+        match_outline_points_to_skeleton(outline_points, skeleton_info, SKELETON_MATCH_TOLERANCE);
+
+    for (i, point) in outline_points.iter().enumerate() {
+        // Only examine Corner points
+        if !matches!(point.point_type, PointType::Corner) {
+            continue;
+        }
+
+        // Check if this Corner has a confident Smooth match in skeleton
+        if let Some(ref match_info) = skeleton_matches[i] {
+            if match_info.is_confident_match {
+                // Check what type the skeleton point is
+                if let Some(skeleton_type) =
+                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
+                {
+                    // If skeleton is Smooth, this Corner is likely a false positive
+                    if matches!(skeleton_type, PointType::Smooth) {
+                        misclassified.push(i);
+                    }
+                }
+            }
+        }
+    }
+
+    misclassified
+}
+
+///
+/// * `Ok((corrected_count, unmatched_count))` - Number of corrections applied and unmatched failures
+/// * `Err(String)` - If matching fails with an error
+fn apply_skeleton_correction_to_failures(
+    outline_points: &mut [InputPoint],
+    failing_indices: &[usize],
+    skeleton_info: &SkeletonInfo,
+) -> Result<(usize, usize), String> {
+    let mut corrected_count = 0;
+    let mut unmatched_count = 0;
+
+    // Match all outline points back to skeleton locations
+    let skeleton_matches =
+        match_outline_points_to_skeleton(outline_points, skeleton_info, SKELETON_MATCH_TOLERANCE);
+
+    for &idx in failing_indices {
+        if idx >= outline_points.len() {
+            continue;
+        }
+
+        // Check if we have a confident match for this point
+        if let Some(ref match_info) = skeleton_matches[idx] {
+            if match_info.is_confident_match {
+                // Extract skeleton angle from the match
+                if let Some(skeleton_angle) = match_info.skeleton_angle {
+                    // Apply skeleton angle to both incoming and outgoing
+                    outline_points[idx].incoming_angle = Some(skeleton_angle);
+                    outline_points[idx].outgoing_angle = Some(skeleton_angle);
+
+                    // Override point type with skeleton's type
+                    if let Some(skeleton_type) =
+                        skeleton_info.get_point_type_at_segment(match_info.segment_index)
+                    {
+                        outline_points[idx].point_type = skeleton_type;
+                    }
+
+                    corrected_count += 1;
+                    continue;
+                }
+            }
+        }
+
+        // No confident match found for this failure
+        unmatched_count += 1;
+    }
+
+    Ok((corrected_count, unmatched_count))
 }
 
 /// Validate G1 continuity of a combined BezPath by extracting angles from the output
@@ -1254,10 +1430,46 @@ pub fn register_skeleton_for_preservation(
         }
     }
 
-    // Extract angles from InputPoints
-    let angles_at_points: Vec<(Option<f64>, Option<f64>)> = skeleton_angles
+    // Extract angles from InputPoints, or compute them from skeleton curve if None
+    let mut angles_at_points: Vec<(Option<f64>, Option<f64>)> = Vec::new();
+
+    // Extract segments to compute tangents if needed
+    let segments = extract_subpaths(&skeleton_path);
+    let mut angle_idx = 0;
+
+    for skeleton_point in skeleton_angles {
+        let mut incoming = skeleton_point.incoming_angle;
+        let mut outgoing = skeleton_point.outgoing_angle;
+
+        // If angles are not provided, compute them from the skeleton curve
+        if incoming.is_none() || outgoing.is_none() {
+            if let Some(subpath) = segments.first() {
+                // Compute incoming angle at this point
+                if incoming.is_none() && angle_idx > 0 && angle_idx < subpath.segments.len() {
+                    let segment = &subpath.segments[angle_idx - 1];
+                    if let Some(tangent) = segment.end_tangent {
+                        incoming = tangent_to_angle_degrees_skeleton(tangent);
+                    }
+                }
+
+                // Compute outgoing angle at this point
+                if outgoing.is_none() && angle_idx < subpath.segments.len() {
+                    let segment = &subpath.segments[angle_idx];
+                    if let Some(tangent) = segment.start_tangent {
+                        outgoing = tangent_to_angle_degrees_skeleton(tangent);
+                    }
+                }
+            }
+        }
+
+        angles_at_points.push((incoming, outgoing));
+        angle_idx += 1;
+    }
+
+    // Extract point types from InputPoints
+    let point_types: Vec<PointType> = skeleton_angles
         .iter()
-        .map(|inp| (inp.incoming_angle, inp.outgoing_angle))
+        .map(|inp| inp.point_type.clone())
         .collect();
 
     // Build skeleton segments
@@ -1367,6 +1579,7 @@ pub fn register_skeleton_for_preservation(
     Ok(SkeletonInfo {
         segments,
         angles_at_points,
+        point_types,
         is_closed,
     })
 }
@@ -1531,6 +1744,42 @@ fn preserve_skeleton_angles_in_outline(
     modified_count
 }
 
+/// Preserve skeleton angles AND point types in outline points
+///
+/// This version applies both skeleton angles and skeleton point types to confident matches.
+/// Used by refit_stroke_with_skeleton() which trusts the skeleton completely.
+fn preserve_skeleton_angles_and_types_in_outline(
+    outline_points: &mut [InputPoint],
+    skeleton_matches: &[Option<OutlineSkeletonMatch>],
+    skeleton_info: &SkeletonInfo,
+) -> usize {
+    let mut modified_count = 0;
+
+    for (outline_pt, skeleton_match) in outline_points.iter_mut().zip(skeleton_matches) {
+        if let Some(match_info) = skeleton_match {
+            // Only apply skeleton values if this is a confident match
+            if match_info.is_confident_match
+                && let Some(angle) = match_info.skeleton_angle
+            {
+                // Apply skeleton angle
+                outline_pt.incoming_angle = Some(angle);
+                outline_pt.outgoing_angle = Some(angle);
+
+                // Apply skeleton point type
+                if let Some(skeleton_type) =
+                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
+                {
+                    outline_pt.point_type = skeleton_type;
+                }
+
+                modified_count += 1;
+            }
+        }
+    }
+
+    modified_count
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
@@ -1674,9 +1923,12 @@ pub fn refit_stroke_with_skeleton(
             SKELETON_MATCH_TOLERANCE,
         );
 
-        // Preserve skeleton angles for confident matches
-        let _preserved_count =
-            preserve_skeleton_angles_in_outline(&mut input_points, &skeleton_matches);
+        // Preserve skeleton angles AND point types for confident matches
+        let _preserved_count = preserve_skeleton_angles_and_types_in_outline(
+            &mut input_points,
+            &skeleton_matches,
+            skeleton_info,
+        );
 
         // Apply G1 smoothing to enforce continuity
         g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
@@ -1685,6 +1937,185 @@ pub fn refit_stroke_with_skeleton(
         validate_g1_smooth(&input_points)?;
 
         // Fit the curve, abort on any failure
+        let fitted_path = fit_curve(input_points, subpath.is_closed)?;
+
+        // Combine paths while preserving closed path structure
+        if is_first_subpath {
+            combined_path = fitted_path;
+            is_first_subpath = false;
+        } else {
+            // Append entire fitted_path including MoveTo and ClosePath
+            for el in fitted_path.elements() {
+                combined_path.push(*el);
+            }
+        }
+    }
+
+    // Validate that the combined path maintains G1 continuity
+    // This checks the actual output curve for kinks
+    validate_combined_path_continuity(&combined_path, config, false)?;
+
+    Ok(combined_path)
+}
+
+/// Refit a stroked outline using skeleton for selective error correction
+///
+/// This hybrid refitting approach combines the strengths of outline-based and skeleton-aware methods:
+///
+/// **Pipeline:**
+/// 1. Extract on-curve points from stroke outline with outline-derived angles
+/// 2. Classify point types (Corner/Smooth) based on angle differences
+/// 3. Apply G1 smoothing to enforce continuity (averaging angles if close)
+/// 4. Detect which Smooth points STILL fail G1 after smoothing
+/// 5. For failing points ONLY: consult skeleton and apply angle corrections
+/// 6. Override point types to match skeleton for corrected points
+/// 7. Re-apply G1 smoothing to propagate corrections to neighboring points
+/// 8. Validate G1 smoothing (warnings only if failures remain)
+/// 9. Fit final curve using Hobby's algorithm
+///
+/// **Key Principle:** Use skeleton as a **correction tool** for specific failures,
+/// not as the primary source. This preserves the natural smoothness of outline
+/// geometry while fixing real problems.
+///
+/// **When to use:**
+/// - When you have the original skeleton AND want the smoothest result
+/// - When you need skeleton-aware error correction without losing outline smoothness
+/// - As a middle-ground between pure outline and full skeleton replacement
+///
+/// # Arguments
+///
+/// * `stroke_path` - The stroked outline to refit
+/// * `skeleton_info` - Pre-computed skeleton information (from `register_skeleton_for_preservation`)
+/// * `config` - Refitter configuration (corner and G1 smoothing thresholds)
+///
+/// # Returns
+///
+/// * `Ok(BezPath)` - Refitted curve
+/// * `Err(String)` - Error message if fitting fails
+///
+/// # Example
+///
+/// ```text
+/// // Register original skeleton before stroking
+/// let skeleton_info = register_skeleton_for_preservation(
+///     &original_curve,
+///     &input_points,
+///     &widths,
+///     is_closed,
+/// )?;
+///
+/// // Create stroked path
+/// let stroke_path = create_variable_width_stroke(&original_curve, &widths)?;
+///
+/// // Refit using selective skeleton correction
+/// let config = StrokeRefitterConfig::new();
+/// let refitted = refit_stroke_with_skeleton_correction(
+///     &stroke_path,
+///     &skeleton_info,
+///     &config
+/// )?;
+/// ```
+///
+/// # Implementation Notes
+///
+/// - G1 failure detection uses 0.5° tolerance (tuned for variable-width stroking)
+/// - Only points with confident skeleton matches are corrected
+/// - Points with unmatched failures are left as-is (may generate warnings)
+/// - Fallback behavior: warns and continues if corrections don't fix all failures
+pub fn refit_stroke_with_skeleton_correction(
+    stroke_path: &BezPath,
+    skeleton_info: &SkeletonInfo,
+    config: &StrokeRefitterConfig,
+) -> Result<BezPath, String> {
+    const G1_FAILURE_TOLERANCE_DEGREES: f64 = 0.5;
+
+    let subpaths = extract_subpaths(stroke_path);
+
+    if subpaths.is_empty() {
+        return Ok(BezPath::new());
+    }
+
+    let mut combined_path = BezPath::new();
+    let mut is_first_subpath = true;
+
+    for subpath in subpaths {
+        let mut input_points =
+            subpath_to_input_points(&subpath, config.corner_threshold_degrees, DEDUP_EPSILON);
+
+        if input_points.len() < 2 {
+            continue;
+        }
+
+        // Stage 1: Apply G1 smoothing to outline-derived angles
+        g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
+
+        // Stage 1b: Detect and correct misclassified Corners
+        // Some Corner points might be false positives from stroking artifacts
+        // If they match to Smooth skeleton points, correct them
+        let misclassified_corners = detect_misclassified_corners(&input_points, skeleton_info);
+        if !misclassified_corners.is_empty() {
+            match apply_skeleton_correction_to_failures(
+                &mut input_points,
+                &misclassified_corners,
+                skeleton_info,
+            ) {
+                Ok((corrected_count, unmatched_count)) => {
+                    eprintln!(
+                        "Corrected misclassified corners: {} detected, {} corrected, {} unmatched",
+                        misclassified_corners.len(),
+                        corrected_count,
+                        unmatched_count
+                    );
+                }
+                Err(e) => {
+                    eprintln!("Warning: Could not correct misclassified corners: {}", e);
+                }
+            }
+        }
+
+        // Stage 2: Detect failures and apply selective skeleton correction
+        let failures = detect_g1_failures(&input_points, G1_FAILURE_TOLERANCE_DEGREES);
+        if !failures.is_empty() {
+            // Try to correct failing points using skeleton information
+            match apply_skeleton_correction_to_failures(&mut input_points, &failures, skeleton_info)
+            {
+                Ok((corrected_count, unmatched_count)) => {
+                    // Log summary (as per user's "summary only" logging preference)
+                    eprintln!(
+                        "Selective correction: {} failures detected, {} corrected, {} unmatched",
+                        failures.len(),
+                        corrected_count,
+                        unmatched_count
+                    );
+
+                    // Re-apply G1 smoothing to all points after corrections
+                    // This propagates skeleton-corrected angles to neighbors
+                    g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
+
+                    // Validate again (but don't fail if it still doesn't pass)
+                    match validate_g1_smooth(&input_points) {
+                        Ok(()) => {
+                            // Success: corrections fixed the problem
+                        }
+                        Err(_e) => {
+                            // Fallback: warn but continue (user chose this policy)
+                            eprintln!(
+                                "Warning: G1 validation still failed after skeleton correction (fallback: continuing anyway)"
+                            );
+                        }
+                    }
+                }
+                Err(e) => {
+                    // Matching error - warn but continue
+                    eprintln!("Warning: Skeleton matching failed during correction: {}", e);
+                }
+            }
+        } else {
+            // No failures detected: validate that smoothing worked correctly
+            validate_g1_smooth(&input_points)?;
+        }
+
+        // Stage 3: Fit the curve
         let fitted_path = fit_curve(input_points, subpath.is_closed)?;
 
         // Combine paths while preserving closed path structure

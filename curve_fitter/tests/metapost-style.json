@@ -14,11 +14,11 @@
     "widths": [10.0, 15.0, 10.0],
     "tolerance": 0.1
   },
-  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton"],
+  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton_correction"],
   "outputs": {
     "fitted_curve": "metapost-style-fitted",
     "stroke_outline": "metapost-style-stroke",
     "refitted_stroke": "metapost-style-refitted",
-    "skeleton_preserved": "metapost-style-skeleton"
+    "skeleton_corrected": "metapost-style-skeleton-correction"
   }
 }

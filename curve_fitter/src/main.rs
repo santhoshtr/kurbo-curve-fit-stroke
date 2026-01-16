@@ -148,10 +148,11 @@ fn list_available_tests() -> Result<(), Box<dyn std::error::Error>> {
         let path = entry.path();
 
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Ok(test_case) = curve_fitter::TestCase::from_file(&path) {
-                count += 1;
-                println!("  • {} - {}", test_case.name, test_case.description);
-            }
+            && let Ok(test_case) = curve_fitter::TestCase::from_file(&path)
+        {
+            count += 1;
+            println!("  • {} - {}", test_case.name, test_case.description);
+        }
     }
 
     if count == 0 {

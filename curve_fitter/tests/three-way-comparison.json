@@ -1,0 +1,32 @@
+{
+  "name": "three-way-comparison",
+  "description": "Compare two refitting strategies: outline-based vs selective skeleton correction",
+  "test_type": "fit_and_stroke",
+  "input": {
+    "points": [
+      {"x": 50.0, "y": 100.0, "point_type": "Smooth"},
+      {"x": 150.0, "y": 50.0, "point_type": "Smooth"},
+      {"x": 250.0, "y": 150.0, "point_type": "Smooth"},
+      {"x": 350.0, "y": 100.0, "point_type": "Smooth"}
+    ],
+    "is_closed": false
+  },
+  "stroke": {
+    "widths": [10.0, 15.0, 40.0, 25.0],
+    "tolerance": 0.1
+  },
+  "operations": [
+    "fit_curve",
+    "stroke",
+    "refit_stroke",
+    "register_skeleton",
+    
+    "refit_with_skeleton_correction"
+  ],
+  "outputs": {
+    "fitted_curve": "three-way-comparison-fitted",
+    "stroke_outline": "three-way-comparison-stroke",
+    "refitted_stroke": "three-way-comparison-outline-based",
+    "skeleton_corrected": "three-way-comparison-skeleton-correction"
+  }
+}
