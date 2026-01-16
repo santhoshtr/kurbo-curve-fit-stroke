@@ -365,10 +365,10 @@ fn extract_subpaths(stroke_path: &BezPath) -> Vec<Subpath> {
         match el {
             PathEl::MoveTo(p) => {
                 // Save current subpath if it exists
-                if let Some(subpath) = current_subpath.take() {
-                    if !subpath.segments.is_empty() {
-                        subpaths.push(subpath);
-                    }
+                if let Some(subpath) = current_subpath.take()
+                    && !subpath.segments.is_empty()
+                {
+                    subpaths.push(subpath);
                 }
                 // Start new subpath
                 current_subpath = Some(Subpath::new(p));
@@ -414,20 +414,20 @@ fn extract_subpaths(stroke_path: &BezPath) -> Vec<Subpath> {
     }
 
     // Save final subpath
-    if let Some(mut subpath) = current_subpath {
-        if !subpath.segments.is_empty() {
-            // Check if path is geometrically closed (even without explicit ClosePath)
-            if !subpath.is_closed {
-                let start = subpath.start_point;
-                let dist_sq = (current_pos - start).hypot2();
-                if dist_sq < EPS {
-                    // Path ends where it started - treat as closed
-                    subpath.is_closed = true;
-                }
+    if let Some(mut subpath) = current_subpath
+        && !subpath.segments.is_empty()
+    {
+        // Check if path is geometrically closed (even without explicit ClosePath)
+        if !subpath.is_closed {
+            let start = subpath.start_point;
+            let dist_sq = (current_pos - start).hypot2();
+            if dist_sq < EPS {
+                // Path ends where it started - treat as closed
+                subpath.is_closed = true;
             }
-
-            subpaths.push(subpath);
         }
+
+        subpaths.push(subpath);
     }
 
     subpaths
@@ -550,8 +550,8 @@ fn subpath_to_input_points(
         };
 
         // Convert tangent vectors to angles (no flip needed - tangents already point in path direction)
-        let incoming_angle = incoming_tangent.and_then(|tan| vec2_to_angle_degrees(tan));
-        let outgoing_angle = outgoing_tangent.and_then(|tan| vec2_to_angle_degrees(tan));
+        let incoming_angle = incoming_tangent.and_then(vec2_to_angle_degrees);
+        let outgoing_angle = outgoing_tangent.and_then(vec2_to_angle_degrees);
 
         // Determine point type based on angle difference
         let point_type = if is_corner(incoming_angle, outgoing_angle, corner_threshold) {
@@ -622,12 +622,12 @@ fn g1_smooth(input_points: &mut Vec<InputPoint>, threshold_degrees: f64) -> usiz
         if let (Some(incoming), Some(outgoing)) = (point.incoming_angle, point.outgoing_angle) {
             let angle_diff = angle_difference_degrees(incoming, outgoing).abs();
             // If difference is within threshold, average them
-            if angle_diff <= threshold_degrees {
-                if let Some(averaged) = average_angles_degrees(Some(incoming), Some(outgoing)) {
-                    point.incoming_angle = Some(averaged);
-                    point.outgoing_angle = Some(averaged);
-                    smoothed_count += 1;
-                }
+            if angle_diff <= threshold_degrees
+                && let Some(averaged) = average_angles_degrees(Some(incoming), Some(outgoing))
+            {
+                point.incoming_angle = Some(averaged);
+                point.outgoing_angle = Some(averaged);
+                smoothed_count += 1;
             }
         }
     }
@@ -743,7 +743,7 @@ fn validate_combined_path_continuity(
     for (subpath_idx, subpath) in subpaths.iter().enumerate() {
         // Convert subpath segments to InputPoints with extracted angles
         let input_points =
-            subpath_to_input_points(&subpath, config.corner_threshold_degrees, DEDUP_EPSILON);
+            subpath_to_input_points(subpath, config.corner_threshold_degrees, DEDUP_EPSILON);
 
         if verbose {
             println!(
@@ -942,8 +942,8 @@ fn compute_segment_tangent_at_parameter(segment: &SkeletonSegment, t: f64) -> Ve
         PathEl::QuadTo(cp, p2) => {
             // Quadratic Bézier derivative
             // B'(t) = 2(1-t)(cp - p0) + 2*t(p2 - cp)
-            let deriv = 2.0 * ((1.0 - t) * (cp - p0) + t * (p2 - cp));
-            deriv
+
+            2.0 * ((1.0 - t) * (cp - p0) + t * (p2 - cp))
         }
         PathEl::CurveTo(cp1, cp2, p3) => {
             // Cubic Bézier derivative
@@ -952,11 +952,9 @@ fn compute_segment_tangent_at_parameter(segment: &SkeletonSegment, t: f64) -> Ve
             let one_minus_t = 1.0 - t;
             let one_minus_t2 = one_minus_t * one_minus_t;
 
-            let deriv = 3.0
-                * (one_minus_t2 * (cp1 - p0)
-                    + 2.0 * one_minus_t * t * (cp2 - cp1)
-                    + t2 * (p3 - cp2));
-            deriv
+            3.0 * (one_minus_t2 * (cp1 - p0)
+                + 2.0 * one_minus_t * t * (cp2 - cp1)
+                + t2 * (p3 - cp2))
         }
         _ => Vec2::ZERO,
     }
@@ -1296,7 +1294,7 @@ pub fn register_skeleton_for_preservation(
                     end_width,
                     start_tangent: start_tan,
                     end_tangent: end_tan,
-                    element: el.clone(),
+                    element: el,
                 });
 
                 current_pos = p1;
@@ -1325,7 +1323,7 @@ pub fn register_skeleton_for_preservation(
                     end_width,
                     start_tangent: start_tan,
                     end_tangent: end_tan,
-                    element: el.clone(),
+                    element: el,
                 });
 
                 current_pos = p2;
@@ -1354,7 +1352,7 @@ pub fn register_skeleton_for_preservation(
                     end_width,
                     start_tangent: start_tan,
                     end_tangent: end_tan,
-                    element: el.clone(),
+                    element: el,
                 });
 
                 current_pos = p3;
@@ -1520,12 +1518,12 @@ fn preserve_skeleton_angles_in_outline(
     for (outline_pt, skeleton_match) in outline_points.iter_mut().zip(skeleton_matches) {
         if let Some(match_info) = skeleton_match {
             // Only apply skeleton angle if this is a confident match
-            if match_info.is_confident_match {
-                if let Some(angle) = match_info.skeleton_angle {
-                    outline_pt.incoming_angle = Some(angle);
-                    outline_pt.outgoing_angle = Some(angle);
-                    modified_count += 1;
-                }
+            if match_info.is_confident_match
+                && let Some(angle) = match_info.skeleton_angle
+            {
+                outline_pt.incoming_angle = Some(angle);
+                outline_pt.outgoing_angle = Some(angle);
+                modified_count += 1;
             }
         }
     }

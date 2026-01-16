@@ -257,7 +257,7 @@ fn bezpath_to_svg(path: &BezPath) -> String {
                 ));
             }
             kurbo::PathEl::ClosePath => {
-                svg.push_str("Z");
+                svg.push('Z');
             }
         }
     }

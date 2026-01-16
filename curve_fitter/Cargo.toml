@@ -6,4 +6,7 @@ edition = "2024"
 [dependencies]
 kurbo = { workspace = true }
 arrayvec = "0.7.6"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+clap = { workspace = true }
 
