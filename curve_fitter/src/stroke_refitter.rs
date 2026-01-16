@@ -1336,7 +1336,7 @@ fn extract_skeleton_angle_at_parameter(
 /// Register a skeleton path for angle preservation during stroke refitting
 ///
 /// Call this BEFORE stroking to prepare the skeleton for later use in
-/// `refit_stroke_with_skeleton()`. This function pre-computes all necessary
+/// `refit_stroke(stroke_path, Some(&skeleton_info), config)`. This function pre-computes all necessary
 /// geometric information to make matching fast and efficient.
 ///
 /// # Arguments
@@ -1375,7 +1375,8 @@ fn extract_skeleton_angle_at_parameter(
 ///
 /// // Now stroke and refit using this skeleton_info...
 /// let outline = stroker.stroke(&skeleton, &widths, &style);
-/// let refitted = refit_stroke_with_skeleton(&outline, &skeleton_info)?;
+/// let config = StrokeRefitterConfig::new();
+/// let refitted = refit_stroke(&outline, Some(&skeleton_info), &config)?;
 /// ```
 pub fn register_skeleton_for_preservation(
     skeleton_path: &BezPath,

@@ -148,16 +148,17 @@ impl TestRunner {
                     intermediate_results.skeleton_info = Some(skeleton_info);
                     println!("    Skeleton registered for angle preservation");
                 }
-                "refit_with_skeleton_correction" | "refit_stroke_with_skeleton" => {
-                    println!("  → {}", operation);
-                    let stroke_path = intermediate_results
-                        .stroke_path
-                        .as_ref()
-                        .ok_or_else(|| format!("stroke must be executed before {}", operation))?;
+                "refit_stroke_with_skeleton" => {
+                    println!("  → refit_stroke_with_skeleton");
+                    let stroke_path =
+                        intermediate_results.stroke_path.as_ref().ok_or_else(|| {
+                            "stroke must be executed before refit_stroke_with_skeleton".to_string()
+                        })?;
 
                     let skeleton_info =
                         intermediate_results.skeleton_info.as_ref().ok_or_else(|| {
-                            format!("register_skeleton must be executed before {}", operation)
+                            "register_skeleton must be executed before refit_stroke_with_skeleton"
+                                .to_string()
                         })?;
 
                     let config = StrokeRefitterConfig::new();
