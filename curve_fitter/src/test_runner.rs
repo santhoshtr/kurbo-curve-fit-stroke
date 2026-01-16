@@ -13,7 +13,7 @@ use crate::var_stroke::VariableStroke;
 use crate::var_stroker::VariableStroker;
 use crate::{
     InputPoint, PointType, SkeletonInfo, StrokeRefitterConfig, fit_curve, refit_stroke,
-    refit_stroke_with_skeleton_correction, register_skeleton_for_preservation,
+    register_skeleton_for_preservation,
 };
 
 /// Test execution engine
@@ -112,7 +112,7 @@ impl TestRunner {
                         .ok_or_else(|| "stroke must be executed before refit_stroke".to_string())?;
 
                     let config = StrokeRefitterConfig::new();
-                    let refitted_path = refit_stroke(stroke_path, &config)?;
+                    let refitted_path = refit_stroke(stroke_path, None, &config)?;
 
                     intermediate_results.refitted_path = Some(refitted_path.clone());
 
@@ -164,7 +164,7 @@ impl TestRunner {
 
                     let config = StrokeRefitterConfig::new();
                     let skeleton_corrected =
-                        refit_stroke_with_skeleton_correction(stroke_path, skeleton_info, &config)?;
+                        refit_stroke(stroke_path, Some(skeleton_info), &config)?;
 
                     intermediate_results.skeleton_corrected = Some(skeleton_corrected.clone());
 

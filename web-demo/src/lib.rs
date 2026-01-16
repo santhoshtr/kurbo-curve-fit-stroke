@@ -1,6 +1,5 @@
 use curve_fitter::{
-    InputPoint, PointType, StrokeRefitterConfig, refit_stroke,
-    refit_stroke_with_skeleton_correction, register_skeleton_for_preservation,
+    InputPoint, PointType, StrokeRefitterConfig, refit_stroke, register_skeleton_for_preservation,
     var_stroke::VariableStroke, var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
@@ -534,7 +533,7 @@ pub fn fit_curve_with_stroke(
             };
 
             // Refit the stroke outline to get cleaner curves
-            let final_path = match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+            let final_path = match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                 Ok(refitted) => {
                     console_log!(
                         "Stroke outline refitted: {} → {} elements",
@@ -643,7 +642,7 @@ pub fn curve_to_svg_path_with_stroke(
                 };
 
                 // Refit the stroke outline to get cleaner curves
-                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                     Ok(refitted) => {
                         console_log!(
                             "Stroke outline refitted: {} → {} elements",
@@ -751,9 +750,9 @@ pub fn fit_curve_with_stroke_and_skeleton(
                                     curve_options.cyclic,
                                 ) {
                                     Ok(skeleton_info_obj) => {
-                                        match refit_stroke_with_skeleton_correction(
+                                        match refit_stroke(
                                             &stroked,
-                                            &skeleton_info_obj,
+                                            Some(&skeleton_info_obj),
                                             &StrokeRefitterConfig::new(),
                                         ) {
                                             Ok(refitted) => {
@@ -771,6 +770,7 @@ pub fn fit_curve_with_stroke_and_skeleton(
                                                 );
                                                 match refit_stroke(
                                                     &stroked,
+                                                    None,
                                                     &StrokeRefitterConfig::new(),
                                                 ) {
                                                     Ok(refitted) => refitted,
@@ -790,7 +790,11 @@ pub fn fit_curve_with_stroke_and_skeleton(
                                             "Warning: Failed to register skeleton ({}), using outline refitting",
                                             e
                                         );
-                                        match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                                        match refit_stroke(
+                                            &stroked,
+                                            None,
+                                            &StrokeRefitterConfig::new(),
+                                        ) {
                                             Ok(refitted) => refitted,
                                             Err(e2) => {
                                                 console_log!(
@@ -808,7 +812,7 @@ pub fn fit_curve_with_stroke_and_skeleton(
                                     "Warning: Failed to extract skeleton points ({}), using outline refitting",
                                     e
                                 );
-                                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                                match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                                     Ok(refitted) => refitted,
                                     Err(e2) => {
                                         console_log!(
@@ -826,7 +830,7 @@ pub fn fit_curve_with_stroke_and_skeleton(
                             "Warning: Failed to parse skeleton path ({}), using outline refitting",
                             e
                         );
-                        match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                        match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                             Ok(refitted) => refitted,
                             Err(e2) => {
                                 console_log!(
@@ -840,7 +844,7 @@ pub fn fit_curve_with_stroke_and_skeleton(
                 }
             } else {
                 // No skeleton provided, use outline-based refitting
-                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                     Ok(refitted) => {
                         console_log!(
                             "Stroke outline refitted: {} → {} elements",
@@ -937,9 +941,9 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                                     curve_options.cyclic,
                                 ) {
                                     Ok(skeleton_info_obj) => {
-                                        match refit_stroke_with_skeleton_correction(
+                                        match refit_stroke(
                                             &stroked,
-                                            &skeleton_info_obj,
+                                            Some(&skeleton_info_obj),
                                             &StrokeRefitterConfig::new(),
                                         ) {
                                             Ok(refitted) => {
@@ -957,6 +961,7 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                                                 );
                                                 match refit_stroke(
                                                     &stroked,
+                                                    None,
                                                     &StrokeRefitterConfig::new(),
                                                 ) {
                                                     Ok(refitted) => refitted,
@@ -976,7 +981,11 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                                             "Warning: Failed to register skeleton ({}), using outline refitting",
                                             e
                                         );
-                                        match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                                        match refit_stroke(
+                                            &stroked,
+                                            None,
+                                            &StrokeRefitterConfig::new(),
+                                        ) {
                                             Ok(refitted) => refitted,
                                             Err(e2) => {
                                                 console_log!(
@@ -994,7 +1003,7 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                                     "Warning: Failed to extract skeleton points ({}), using outline refitting",
                                     e
                                 );
-                                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                                match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                                     Ok(refitted) => refitted,
                                     Err(e2) => {
                                         console_log!(
@@ -1012,7 +1021,7 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                             "Warning: Failed to parse skeleton path ({}), using outline refitting",
                             e
                         );
-                        match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                        match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                             Ok(refitted) => refitted,
                             Err(e2) => {
                                 console_log!(
@@ -1026,7 +1035,7 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                 }
             } else {
                 // No skeleton provided, use outline-based refitting
-                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
+                match refit_stroke(&stroked, None, &StrokeRefitterConfig::new()) {
                     Ok(refitted) => {
                         console_log!(
                             "Stroke outline refitted: {} → {} elements",

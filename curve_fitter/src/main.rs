@@ -10,7 +10,7 @@ use curve_fitter::TestRunner;
 #[command(name = "curve-fit")]
 #[command(about = "Curve fitting with JSON-driven tests")]
 #[command(
-    long_about = "Execute curve fitting tests defined in JSON files. Each test specifies a sequence of operations (fit_curve, stroke, refit_stroke, register_skeleton, refit_with_skeleton) on a set of input points."
+    long_about = "Execute curve fitting tests defined in JSON files. Each test specifies a sequence of operations (fit_curve, stroke, refit_stroke, register_skeleton, refit_with_skeleton_correction) on a set of input points."
 )]
 struct Args {
     /// Run a single test from JSON file

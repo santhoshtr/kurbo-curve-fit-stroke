@@ -16,7 +16,7 @@ pub mod var_stroker;
 // Re-export the main stroke refitter functions
 pub use stroke_refitter::{
     OutlineSkeletonMatch, SkeletonInfo, StrokeRefitterConfig, refit_stroke,
-    refit_stroke_with_skeleton_correction, register_skeleton_for_preservation,
+    register_skeleton_for_preservation,
 };
 
 // Re-export test framework
