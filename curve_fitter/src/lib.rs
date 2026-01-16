@@ -5,6 +5,8 @@ use crate::spline::Spline;
 use crate::two_param_curve::TwoParamCurve;
 pub mod spline;
 pub mod stroke_refitter;
+pub mod test_runner;
+pub mod test_schema;
 pub mod two_param_curve;
 pub mod two_param_spline;
 pub mod var_offset;
@@ -13,9 +15,13 @@ pub mod var_stroker;
 
 // Re-export the main stroke refitter functions
 pub use stroke_refitter::{
-    OutlineSkeletonMatch, SkeletonInfo, refit_stroke, refit_stroke_with_skeleton,
-    register_skeleton_for_preservation,
+    OutlineSkeletonMatch, SkeletonInfo, StrokeRefitterConfig, refit_stroke,
+    refit_stroke_with_skeleton, register_skeleton_for_preservation,
 };
+
+// Re-export test framework
+pub use test_runner::TestRunner;
+pub use test_schema::TestCase;
 
 #[derive(Debug, Clone)]
 pub struct InputPoint {
