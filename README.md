@@ -135,7 +135,7 @@ We address this with a three-stage process embedded in the `refit_stroke()` func
 When the stroke outline is generated, we extract its on-curve points (the corner-like features where segments join). At each point, we calculate:
 
 - **Incoming tangent angle**: The direction the curve is heading into this point
-- **Outgoing tangent angle**: The direction the curve is heading out of this point  
+- **Outgoing tangent angle**: The direction the curve is heading out of this point
 - **Point type**: Classify as either "Corner" (angles differ significantly) or "Smooth" (angles match)
 
 The threshold for this classification is configurable (default: 15° for variable-width strokes).
@@ -187,29 +187,6 @@ Once all corrections are applied, the outline points are passed through the curv
 - The full constraint set from the two-parameter curve approach
 
 The result is a clean, smooth curve that respects the original geometry while resolving the stroking-induced discontinuities.
-
-### Two Modes of Operation
-
-The `refit_stroke()` function supports two operating modes:
-
-**Mode 1: Outline-Only Refitting** (`skeleton_info = None`)
-- Extract on-curve points from the stroke outline
-- Classify and smooth using outline-derived angles only
-- Fit a curve through the corrected points
-- Faster, but may retain some artifacts from variable-width stroking
-
-**Mode 2: Skeleton-Aware Selective Correction** (`skeleton_info = Some(&skeleton)`)
-- All of Mode 1, plus:
-- Detect misclassified corners using skeleton reference
-- Detect G₁ failures and correct them using skeleton angles
-- Results in higher-quality curves closer to the original design intent
-- Recommended for font engineering and precision applications
-
-**Comparison: Three-way refitting results**
-
-| Original Fitted Curve | Outline-Only Mode | Skeleton-Aware Mode |
-|---|---|---|
-| ![](./docs/images/three-way-comparison-fitted.svg) | ![](./docs/images/three-way-comparison-outline-based.svg) | ![](./docs/images/three-way-comparison-skeleton-correction.svg) |
 
 ### Key Design Principles
 
