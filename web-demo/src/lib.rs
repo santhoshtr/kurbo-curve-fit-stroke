@@ -1,5 +1,6 @@
 use curve_fitter::{
-    InputPoint, PointType, refit_stroke, var_stroke::VariableStroke, var_stroker::VariableStroker,
+    InputPoint, PointType, StrokeRefitterConfig, refit_stroke, var_stroke::VariableStroke,
+    var_stroker::VariableStroker,
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
@@ -418,7 +419,7 @@ pub fn fit_curve_with_stroke(
             };
 
             // Refit the stroke outline to get cleaner curves
-            let final_path = match refit_stroke(&stroked) {
+            let final_path = match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
                 Ok(refitted) => {
                     console_log!(
                         "Stroke outline refitted: {} → {} elements",
@@ -527,7 +528,7 @@ pub fn curve_to_svg_path_with_stroke(
                 };
 
                 // Refit the stroke outline to get cleaner curves
-                match refit_stroke(&stroked) {
+                match refit_stroke(&stroked, &StrokeRefitterConfig::new()) {
                     Ok(refitted) => {
                         console_log!(
                             "Stroke outline refitted: {} → {} elements",
