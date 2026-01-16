@@ -1,0 +1,24 @@
+{
+  "name": "metapost-style",
+  "description": "Curve with explicit tangent angle constraints (MetaPost {dir} syntax) - test skeleton preservation with constraints",
+  "test_type": "fit_and_stroke",
+  "input": {
+    "points": [
+      {"x": 50.0, "y": 100.0, "point_type": "Smooth", "outgoing_angle": 10.0},
+      {"x": 150.0, "y": 50.0, "point_type": "Smooth", "incoming_angle": 90.0},
+      {"x": 250.0, "y": 150.0, "point_type": "Smooth"}
+    ],
+    "is_closed": false
+  },
+  "stroke": {
+    "widths": [10.0, 15.0, 10.0],
+    "tolerance": 0.1
+  },
+  "operations": ["fit_curve", "stroke", "refit_stroke", "register_skeleton", "refit_with_skeleton"],
+  "outputs": {
+    "fitted_curve": "metapost-style-fitted",
+    "stroke_outline": "metapost-style-stroke",
+    "refitted_stroke": "metapost-style-refitted",
+    "skeleton_preserved": "metapost-style-skeleton"
+  }
+}

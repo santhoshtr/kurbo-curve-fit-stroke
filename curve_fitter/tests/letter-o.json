@@ -1,0 +1,24 @@
+{
+  "name": "letter-o",
+  "description": "Letter 'O' shape with variable width stroke (closed path - skeleton preservation requires additional width for closure)",
+  "test_type": "fit_and_stroke",
+  "input": {
+    "points": [
+      {"x": 100.0, "y": 50.0, "point_type": "Smooth"},
+      {"x": 150.0, "y": 100.0, "point_type": "Smooth"},
+      {"x": 100.0, "y": 150.0, "point_type": "Smooth"},
+      {"x": 50.0, "y": 100.0, "point_type": "Smooth"}
+    ],
+    "is_closed": true
+  },
+  "stroke": {
+    "widths": [10.0, 5.0, 10.0, 5.0],
+    "tolerance": 0.1
+  },
+  "operations": ["fit_curve", "stroke", "refit_stroke"],
+  "outputs": {
+    "fitted_curve": "letter-o-fitted",
+    "stroke_outline": "letter-o-stroke",
+    "refitted_stroke": "letter-o-refitted"
+  }
+}
