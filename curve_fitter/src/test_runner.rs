@@ -233,10 +233,7 @@ struct IntermediateResults {
 fn bezpath_to_svg(path: &BezPath) -> String {
     let mut svg = String::new();
     svg.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-    svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1000 1000\" width=\"1000\" height=\"1000\">\n");
-
-    // Add background
-    svg.push_str("  <rect width=\"1000\" height=\"1000\" fill=\"white\"/>\n");
+    svg.push_str("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 400 200\" width=\"400\" height=\"200\">\n");
 
     // Add path
     svg.push_str("  <path d=\"");
@@ -264,7 +261,7 @@ fn bezpath_to_svg(path: &BezPath) -> String {
         }
     }
 
-    svg.push_str("\" fill=\"none\" stroke=\"black\" stroke-width=\"1\"/>\n");
+    svg.push_str("\" fill=\"#AFDBF5\" stroke=\"orangered\" stroke-width=\"1\"/>\n");
     svg.push_str("</svg>\n");
 
     svg

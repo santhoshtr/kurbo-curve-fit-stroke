@@ -101,7 +101,7 @@ This approach had one limitation though. While the outline curve is smooth for a
 kinks(sharp jumps) can happen we suuch segments are joined.
 Since the tangent calculation based on $(1 + \kappa d)x' + nd'$ need some updates to handle the case of segment joins I guess. The sideways movement of the stroke) based on how much the width changes per segment  - $$d'$$ but when segment A and B has different lengths, the rate change is rapid in some cases. this changes the angle of the offset curve, creating the kink you see here:
 
-![](./docs/var-interpolation-continuity-error.png)
+![G1 Continuity Error at Segment Joints](./docs/var-interpolation-continuity-error.png)
 
 
 So we need an error correction mechanism at segment joins to get $G_1$ continuity.
@@ -140,6 +140,12 @@ When the stroke outline is generated, we extract its on-curve points (the corner
 
 The threshold for this classification is configurable (default: 15° for variable-width strokes).
 
+**Example: Variable-width stroke outline (wave-simple test case)**
+
+| Original Curve | Stroke Outline | After Stage 1 Correction |
+|---|---|---|
+| ![](./docs/images/wave-simple-fitted.svg) | ![](./docs/images/wave-simple-stroke.svg) | ![](./docs/images/wave-simple-refitted.svg) |
+
 #### **Stage 1b: Detect Misclassified Corners (With Skeleton)**
 
 If skeleton information is available, we perform a second-pass analysis:
@@ -152,6 +158,10 @@ We correct these misclassified points by:
 - Using the skeleton's tangent direction (which is stable and reliable)
 - Replacing the problematic outline angles with the skeleton's incoming and outgoing angles
 - Re-classifying the point as "Smooth"
+
+**Example: Skeleton-aware correction catches false corners**
+
+![Skeleton-Aware Correction Workflow](./docs/images/wave-simple-skeleton-correction.svg)
 
 #### **Stage 2: Detect and Correct G₁ Failures (With Skeleton)**
 
@@ -194,6 +204,12 @@ The `refit_stroke()` function supports two operating modes:
 - Detect G₁ failures and correct them using skeleton angles
 - Results in higher-quality curves closer to the original design intent
 - Recommended for font engineering and precision applications
+
+**Comparison: Three-way refitting results**
+
+| Original Fitted Curve | Outline-Only Mode | Skeleton-Aware Mode |
+|---|---|---|
+| ![](./docs/images/three-way-comparison-fitted.svg) | ![](./docs/images/three-way-comparison-outline-based.svg) | ![](./docs/images/three-way-comparison-skeleton-correction.svg) |
 
 ### Key Design Principles
 
