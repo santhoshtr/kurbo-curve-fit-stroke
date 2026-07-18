@@ -178,6 +178,24 @@ fn is_corner(incoming: Option<f64>, outgoing: Option<f64>, threshold: f64) -> bo
 // Public API
 // ============================================================================
 
+/// Diagnostics collected while refitting a stroke outline
+///
+/// Counts are summed over all subpaths of the refitted path. Unmatched
+/// failures (no confident skeleton match) are `detected - corrected`.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct RefitDiagnostics {
+    /// Outline Corner points that matched Smooth skeleton points
+    pub misclassified_corners: usize,
+    /// Misclassified corners corrected from the skeleton
+    pub misclassified_corners_corrected: usize,
+    /// Smooth points still failing G1 continuity after initial smoothing
+    pub g1_failures: usize,
+    /// G1 failures corrected from the skeleton
+    pub g1_failures_corrected: usize,
+    /// Non-fatal problems encountered while refitting
+    pub warnings: Vec<String>,
+}
+
 /// Refits a stroked path outline by extracting on-curve points with tangent angles
 /// and running the curve fitting algorithm.
 ///
@@ -222,7 +240,8 @@ fn is_corner(incoming: Option<f64>, outgoing: Option<f64>, threshold: f64) -> bo
 ///
 /// # Returns
 ///
-/// * `Ok(BezPath)` - The refitted curve combining all subpaths
+/// * `Ok((BezPath, RefitDiagnostics))` - The refitted curve combining all
+///   subpaths, plus correction counts and non-fatal warnings
 /// * `Err(String)` - Error message if fitting fails (aborts on first failure)
 ///
 /// # Examples
@@ -234,29 +253,31 @@ fn is_corner(incoming: Option<f64>, outgoing: Option<f64>, threshold: f64) -> bo
 /// let config = StrokeRefitterConfig::new();
 ///
 /// // Without skeleton (outline-only refitting)
-/// let refitted = refit_stroke(&stroked_path, None, &config)?;
+/// let (refitted, diagnostics) = refit_stroke(&stroked_path, None, &config)?;
 ///
 /// // With skeleton (selective skeleton correction)
-/// let refitted = refit_stroke(&stroked_path, Some(&skeleton_info), &config)?;
+/// let (refitted, diagnostics) = refit_stroke(&stroked_path, Some(&skeleton_info), &config)?;
 /// ```
 ///
 /// # Implementation Notes
 ///
 /// - G1 failure detection (when skeleton available) uses 0.5° tolerance
 /// - Only points with confident skeleton matches are corrected
-/// - Points with unmatched failures are left as-is (may generate warnings)
-/// - Fallback behavior: warns and continues if corrections don't fix all failures
+/// - Points with unmatched failures are left as-is
+/// - Fallback behavior: records a warning and continues if corrections
+///   don't fix all failures
 pub fn refit_stroke(
     stroke_path: &BezPath,
     skeleton_info: Option<&SkeletonInfo>,
     config: &StrokeRefitterConfig,
-) -> Result<BezPath, String> {
+) -> Result<(BezPath, RefitDiagnostics), String> {
     const G1_FAILURE_TOLERANCE_DEGREES: f64 = 0.5;
 
+    let mut diagnostics = RefitDiagnostics::default();
     let subpaths = extract_subpaths(stroke_path);
 
     if subpaths.is_empty() {
-        return Ok(BezPath::new());
+        return Ok((BezPath::new(), diagnostics));
     }
 
     let mut combined_path = BezPath::new();
@@ -280,21 +301,19 @@ pub fn refit_stroke(
             // If they match to Smooth skeleton points, correct them
             let misclassified_corners = detect_misclassified_corners(&input_points, skeleton);
             if !misclassified_corners.is_empty() {
+                diagnostics.misclassified_corners += misclassified_corners.len();
                 match apply_skeleton_correction_to_failures(
                     &mut input_points,
                     &misclassified_corners,
                     skeleton,
                 ) {
-                    Ok((corrected_count, unmatched_count)) => {
-                        eprintln!(
-                            "Corrected misclassified corners: {} detected, {} corrected, {} unmatched",
-                            misclassified_corners.len(),
-                            corrected_count,
-                            unmatched_count
-                        );
+                    Ok((corrected_count, _unmatched_count)) => {
+                        diagnostics.misclassified_corners_corrected += corrected_count;
                     }
                     Err(e) => {
-                        eprintln!("Warning: Could not correct misclassified corners: {}", e);
+                        diagnostics
+                            .warnings
+                            .push(format!("Could not correct misclassified corners: {}", e));
                     }
                 }
             }
@@ -302,37 +321,31 @@ pub fn refit_stroke(
             // Stage 2: Detect failures and apply selective skeleton correction
             let failures = detect_g1_failures(&input_points, G1_FAILURE_TOLERANCE_DEGREES);
             if !failures.is_empty() {
+                diagnostics.g1_failures += failures.len();
                 // Try to correct failing points using skeleton information
                 match apply_skeleton_correction_to_failures(&mut input_points, &failures, skeleton)
                 {
-                    Ok((corrected_count, unmatched_count)) => {
-                        eprintln!(
-                            "Selective correction: {} failures detected, {} corrected, {} unmatched",
-                            failures.len(),
-                            corrected_count,
-                            unmatched_count
-                        );
+                    Ok((corrected_count, _unmatched_count)) => {
+                        diagnostics.g1_failures_corrected += corrected_count;
 
                         // Re-apply G1 smoothing to all points after corrections
                         // This propagates skeleton-corrected angles to neighbors
                         g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
 
                         // Validate again (but don't fail if it still doesn't pass)
-                        match validate_g1_smooth(&input_points) {
-                            Ok(()) => {
-                                // Success: corrections fixed the problem
-                            }
-                            Err(_e) => {
-                                // Fallback: warn but continue
-                                eprintln!(
-                                    "Warning: G1 validation still failed after skeleton correction (fallback: continuing anyway)"
-                                );
-                            }
+                        if let Err(e) = validate_g1_smooth(&input_points) {
+                            // Fallback: record and continue
+                            diagnostics.warnings.push(format!(
+                                "G1 validation still failed after skeleton correction: {}",
+                                e
+                            ));
                         }
                     }
                     Err(e) => {
-                        // Matching error - warn but continue
-                        eprintln!("Warning: Skeleton matching failed during correction: {}", e);
+                        // Matching error - record and continue
+                        diagnostics
+                            .warnings
+                            .push(format!("Skeleton matching failed during correction: {}", e));
                     }
                 }
             } else {
@@ -361,9 +374,9 @@ pub fn refit_stroke(
 
     // Validate that the combined path maintains G1 continuity
     // This checks the actual output curve for kinks
-    validate_combined_path_continuity(&combined_path, config, skeleton_info.is_some())?;
+    validate_combined_path_continuity(&combined_path, config)?;
 
-    Ok(combined_path)
+    Ok((combined_path, diagnostics))
 }
 
 // ============================================================================

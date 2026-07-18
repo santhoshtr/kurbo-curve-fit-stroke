@@ -139,11 +139,6 @@ pub(super) fn detect_g1_failures(input_points: &[InputPoint], tolerance_degrees:
 /// - Multiple subpaths were combined incorrectly
 /// - The smoothing process failed to enforce continuity
 ///
-/// # Arguments
-///
-/// * `combined_path` - The final output BezPath to validate
-/// * `verbose` - If true, prints detailed angle info for ALL points (not just failures)
-///
 /// # Returns
 ///
 /// * `Ok(())` - All Smooth points maintain G1 continuity
@@ -151,145 +146,38 @@ pub(super) fn detect_g1_failures(input_points: &[InputPoint], tolerance_degrees:
 ///
 /// # Angle Tolerance
 ///
-/// Uses 0.1° tolerance for user-facing messages (more lenient than internal 1e-9°)
+/// Uses 0.1° tolerance (more lenient than internal 1e-9°)
 /// to account for numerical precision in curve fitting.
 pub(super) fn validate_combined_path_continuity(
     combined_path: &BezPath,
     config: &StrokeRefitterConfig,
-    verbose: bool,
 ) -> Result<(), String> {
-    const ANGLE_TOLERANCE_DEGREES: f64 = 0.1; // User-facing tolerance
+    const ANGLE_TOLERANCE_DEGREES: f64 = 0.1;
 
-    if verbose {
-        println!("\n=== G1 Continuity Check: Combined Path ===");
-    }
-
-    // Extract subpaths from the combined output
-    let subpaths = extract_subpaths(combined_path);
-
-    if subpaths.is_empty() {
-        if verbose {
-            println!("Empty path - nothing to validate");
-        }
-        return Ok(());
-    }
-
-    if verbose {
-        println!("Analyzing {} subpath(s)", subpaths.len());
-    }
-
-    let mut total_points = 0;
-
-    for (subpath_idx, subpath) in subpaths.iter().enumerate() {
+    for (subpath_idx, subpath) in extract_subpaths(combined_path).iter().enumerate() {
         // Convert subpath segments to InputPoints with extracted angles
         let input_points =
             subpath_to_input_points(subpath, config.corner_threshold_degrees, DEDUP_EPSILON);
 
-        if verbose {
-            println!(
-                "\n--- Subpath {} ({} points, {}) ---",
-                subpath_idx,
-                input_points.len(),
-                if subpath.is_closed { "Closed" } else { "Open" }
-            );
-        }
-
         for (point_idx, point) in input_points.iter().enumerate() {
-            total_points += 1;
-
-            // Only validate Smooth points
+            // Only validate Smooth points; Corners are allowed to have
+            // mismatched angles, and a missing angle marks an endpoint
             if !matches!(point.point_type, PointType::Smooth) {
-                if verbose {
-                    println!(
-                        "[Point {}] ({:.2}, {:.2}) - Corner",
-                        point_idx, point.x, point.y
-                    );
-                    println!("  ✓ OK (corner point, angles can differ)");
-                }
                 continue;
             }
 
-            // Check if both angles are defined
-            match (point.incoming_angle, point.outgoing_angle) {
-                (Some(incoming), Some(outgoing)) => {
-                    let angle_diff = angle_difference_degrees(incoming, outgoing).abs();
-
-                    if verbose {
-                        println!(
-                            "[Point {}] ({:.2}, {:.2}) - Smooth",
-                            point_idx, point.x, point.y
-                        );
-                        println!("  Incoming:  {:.2}°", incoming);
-                        println!("  Outgoing:  {:.2}°", outgoing);
-                        println!("  Difference: {:.2}°", angle_diff);
-                    }
-
-                    if angle_diff > ANGLE_TOLERANCE_DEGREES {
-                        println!(
-                            "\n❌ KINK DETECTED at subpath {} point {} ({:.2}, {:.2})",
-                            subpath_idx, point_idx, point.x, point.y
-                        );
-                        println!("  Incoming angle:  {:.2}°", incoming);
-                        println!("  Outgoing angle:  {:.2}°", outgoing);
-                        println!("  Angle difference: {:.2}°", angle_diff);
-                        println!("  This node has a G1 continuity violation!");
-
-                        return Err(format!(
-                            "G1 continuity violation in subpath {} at point {} ({:.2}, {:.2}): \
-                             incoming angle {:.2}° ≠ outgoing angle {:.2}° (diff: {:.2}°)",
-                            subpath_idx,
-                            point_idx,
-                            point.x,
-                            point.y,
-                            incoming,
-                            outgoing,
-                            angle_diff
-                        ));
-                    } else if verbose {
-                        println!("  ✓ OK");
-                    }
-                }
-                (None, Some(outgoing)) => {
-                    if verbose {
-                        println!(
-                            "[Point {}] ({:.2}, {:.2}) - Smooth",
-                            point_idx, point.x, point.y
-                        );
-                        println!("  Incoming:  None (start point)");
-                        println!("  Outgoing:  {:.2}°", outgoing);
-                        println!("  ✓ OK (endpoint rule)");
-                    }
-                }
-                (Some(incoming), None) => {
-                    if verbose {
-                        println!(
-                            "[Point {}] ({:.2}, {:.2}) - Smooth",
-                            point_idx, point.x, point.y
-                        );
-                        println!("  Incoming:  {:.2}°", incoming);
-                        println!("  Outgoing:  None (end point)");
-                        println!("  ✓ OK (endpoint rule)");
-                    }
-                }
-                (None, None) => {
-                    if verbose {
-                        println!(
-                            "[Point {}] ({:.2}, {:.2}) - Smooth",
-                            point_idx, point.x, point.y
-                        );
-                        println!("  Incoming:  None");
-                        println!("  Outgoing:  None");
-                        println!("  ✓ OK (isolated point or endpoint)");
-                    }
+            if let (Some(incoming), Some(outgoing)) = (point.incoming_angle, point.outgoing_angle)
+            {
+                let angle_diff = angle_difference_degrees(incoming, outgoing).abs();
+                if angle_diff > ANGLE_TOLERANCE_DEGREES {
+                    return Err(format!(
+                        "G1 continuity violation in subpath {} at point {} ({:.2}, {:.2}): \
+                         incoming angle {:.2}° ≠ outgoing angle {:.2}° (diff: {:.2}°)",
+                        subpath_idx, point_idx, point.x, point.y, incoming, outgoing, angle_diff
+                    ));
                 }
             }
         }
-    }
-
-    if verbose {
-        println!("\n=== Validation Complete ===");
-        println!("Total points checked: {}", total_points);
-        println!("✓ All Smooth points maintain G1 continuity");
     }
 
     Ok(())
@@ -443,8 +331,7 @@ mod tests {
         path.curve_to((40.0, 10.0), (50.0, 0.0), (60.0, 0.0));
 
         let config = StrokeRefitterConfig::new();
-        // Should pass with verbose=false
-        assert!(validate_combined_path_continuity(&path, &config, false).is_ok());
+        assert!(validate_combined_path_continuity(&path, &config).is_ok());
     }
 
     #[test]
@@ -459,8 +346,7 @@ mod tests {
         path.curve_to((30.0, 10.0), (30.0, 20.0), (30.0, 30.0));
 
         let config = StrokeRefitterConfig::new();
-        // Debug: print actual angles
-        let result = validate_combined_path_continuity(&path, &config, true);
+        let result = validate_combined_path_continuity(&path, &config);
 
         // The angles might be smooth depending on how curve fitting works
         // So this test might pass - let's just verify it doesn't crash
@@ -478,7 +364,7 @@ mod tests {
         let path = BezPath::new();
         let config = StrokeRefitterConfig::new();
         // Empty path should pass validation
-        assert!(validate_combined_path_continuity(&path, &config, false).is_ok());
+        assert!(validate_combined_path_continuity(&path, &config).is_ok());
     }
 
     #[test]
@@ -493,6 +379,6 @@ mod tests {
 
         let config = StrokeRefitterConfig::new();
         // Corners are allowed to have angle mismatches
-        assert!(validate_combined_path_continuity(&path, &config, false).is_ok());
+        assert!(validate_combined_path_continuity(&path, &config).is_ok());
     }
 }

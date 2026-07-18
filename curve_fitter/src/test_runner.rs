@@ -112,7 +112,8 @@ impl TestRunner {
                         .ok_or_else(|| "stroke must be executed before refit_stroke".to_string())?;
 
                     let config = StrokeRefitterConfig::new();
-                    let refitted_path = refit_stroke(stroke_path, None, &config)?;
+                    let (refitted_path, diagnostics) = refit_stroke(stroke_path, None, &config)?;
+                    print_diagnostics(&diagnostics);
 
                     intermediate_results.refitted_path = Some(refitted_path.clone());
 
@@ -158,8 +159,9 @@ impl TestRunner {
                         })?;
 
                     let config = StrokeRefitterConfig::new();
-                    let skeleton_corrected =
+                    let (skeleton_corrected, diagnostics) =
                         refit_stroke(stroke_path, Some(skeleton_info), &config)?;
+                    print_diagnostics(&diagnostics);
 
                     intermediate_results.skeleton_corrected = Some(skeleton_corrected.clone());
 
@@ -209,6 +211,25 @@ impl TestRunner {
         fs::write(&filepath, svg_content).map_err(|e| format!("Failed to write SVG: {}", e))?;
 
         Ok(())
+    }
+}
+
+/// Print refit diagnostics collected by the library
+fn print_diagnostics(diagnostics: &crate::RefitDiagnostics) {
+    if diagnostics.misclassified_corners > 0 {
+        println!(
+            "    Misclassified corners: {} detected, {} corrected",
+            diagnostics.misclassified_corners, diagnostics.misclassified_corners_corrected
+        );
+    }
+    if diagnostics.g1_failures > 0 {
+        println!(
+            "    G1 failures: {} detected, {} corrected",
+            diagnostics.g1_failures, diagnostics.g1_failures_corrected
+        );
+    }
+    for warning in &diagnostics.warnings {
+        println!("    Warning: {}", warning);
     }
 }
 
