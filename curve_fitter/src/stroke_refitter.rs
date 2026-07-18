@@ -372,9 +372,12 @@ pub fn refit_stroke(
         }
     }
 
-    // Validate that the combined path maintains G1 continuity
-    // This checks the actual output curve for kinks
-    validate_combined_path_continuity(&combined_path, config)?;
+    // Check the actual output curve for kinks. A residual kink is reported
+    // as a warning, not an error: the refitted path is still preferable to
+    // failing the whole operation.
+    if let Err(e) = validate_combined_path_continuity(&combined_path, config) {
+        diagnostics.warnings.push(e);
+    }
 
     Ok((combined_path, diagnostics))
 }
