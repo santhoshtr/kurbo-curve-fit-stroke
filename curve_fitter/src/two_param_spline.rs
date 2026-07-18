@@ -116,19 +116,21 @@ impl TwoParamSpline {
         let mut corrections = vec![0.0; n - 2];
 
         let mut ths0 = self.get_ths(0);
-        let mut ak0 = curve.compute_curvature(ths0.th0, ths0.th1);
+        let mut curvature_0 = curve.compute_curvature(ths0.th0, ths0.th1);
 
         #[allow(clippy::needless_range_loop)]
         for i in 0..n - 2 {
             let ths1 = self.get_ths(i + 1);
-            let ak1 = curve.compute_curvature(ths1.th0, ths1.th1);
+            let curvature_1 = curve.compute_curvature(ths1.th0, ths1.th1);
 
-            let err = self.compute_curvature_error(&ths0, &ak0, &ths1, &ak1);
+            let err = self.compute_curvature_error(&ths0, &curvature_0, &ths1, &curvature_1);
             abs_err += err.abs();
 
             // Numerical derivative for Newton step
             let epsilon = 1e-3;
+            // curvature at the end of the left segment
             let ak0_p = curve.compute_curvature(ths0.th0, ths0.th1 + epsilon);
+            // curvature at the start of the right segment
             let ak1_p = curve.compute_curvature(ths1.th0 - epsilon, ths1.th1);
             let err_p = self.compute_curvature_error(&ths0, &ak0_p, &ths1, &ak1_p);
             let derr = (err_p - err) / epsilon;
@@ -138,7 +140,7 @@ impl TwoParamSpline {
             }
 
             ths0 = ths1;
-            ak0 = ak1;
+            curvature_0 = curvature_1;
         }
 
         // Apply corrections with damping
