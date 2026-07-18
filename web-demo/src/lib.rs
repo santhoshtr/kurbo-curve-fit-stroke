@@ -1,6 +1,7 @@
 use curve_fitter::{
     InputPoint, PointType, StrokeRefitterConfig, refit_stroke, register_skeleton_for_preservation,
-    var_stroke::VariableStroke, var_stroker::VariableStroker,
+    var_stroke::VariableStroke,
+    var_stroker::{VariableStroker, WidthProfile},
 };
 use kurbo::{BezPath, Cap, Join, Point, Stroke, StrokeOpts, stroke};
 use wasm_bindgen::prelude::*;
@@ -211,6 +212,7 @@ pub struct StrokeOptions {
     join: Join,
     interpolatable: bool,
     tolerance: f64,
+    width_profile: WidthProfile,
 }
 
 #[wasm_bindgen]
@@ -223,7 +225,17 @@ impl StrokeOptions {
             join: Join::Round,
             interpolatable: false,
             tolerance: 0.1,
+            width_profile: WidthProfile::Linear,
         }
+    }
+
+    /// Set the width interpolation profile: "linear", "smoothstep" or "monotone"
+    pub fn set_width_profile(&mut self, name: &str) {
+        self.width_profile = match name {
+            "smoothstep" => WidthProfile::Smoothstep,
+            "monotone" => WidthProfile::MonotoneCubic,
+            _ => WidthProfile::Linear,
+        };
     }
 
     #[wasm_bindgen]
@@ -543,7 +555,8 @@ pub fn fit_curve_with_stroke(
                     .with_caps(stroke_options.cap)
                     .with_join(stroke_options.join);
 
-                let stroker = VariableStroker::new(stroke_options.tolerance);
+                let stroker = VariableStroker::new(stroke_options.tolerance)
+                    .with_width_profile(stroke_options.width_profile);
                 match stroker.stroke(&bez_path, widths, &style) {
                     Ok(stroked) => stroked,
                     Err(e) => {
@@ -658,7 +671,8 @@ pub fn curve_to_svg_path_with_stroke(
                         .with_caps(stroke_options.cap)
                         .with_join(stroke_options.join);
 
-                    let stroker = VariableStroker::new(stroke_options.tolerance);
+                    let stroker = VariableStroker::new(stroke_options.tolerance)
+                    .with_width_profile(stroke_options.width_profile);
                     match stroker.stroke(&bez_path, widths, &style) {
                         Ok(stroked) => stroked,
                         Err(e) => {
@@ -760,7 +774,8 @@ pub fn fit_curve_with_stroke_and_skeleton(
                     .with_caps(stroke_options.cap)
                     .with_join(stroke_options.join);
 
-                let stroker = VariableStroker::new(stroke_options.tolerance);
+                let stroker = VariableStroker::new(stroke_options.tolerance)
+                    .with_width_profile(stroke_options.width_profile);
                 match stroker.stroke(&bez_path, widths, &style) {
                     Ok(stroked) => stroked,
                     Err(e) => {
@@ -956,7 +971,8 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                     .with_caps(stroke_options.cap)
                     .with_join(stroke_options.join);
 
-                let stroker = VariableStroker::new(stroke_options.tolerance);
+                let stroker = VariableStroker::new(stroke_options.tolerance)
+                    .with_width_profile(stroke_options.width_profile);
                 match stroker.stroke(&bez_path, widths, &style) {
                     Ok(stroked) => stroked,
                     Err(e) => {

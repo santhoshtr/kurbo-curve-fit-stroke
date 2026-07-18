@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use kurbo::{Affine, Arc, BezPath, Cap, CubicBez, Join, PathEl, Point, Vec2};
 
-use crate::var_offset::offset_cubic_variable;
+use crate::var_offset::{SegmentWidth, offset_cubic_variable};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct VariableStroke {
@@ -179,10 +179,10 @@ impl VariableStrokeCtx {
         self.last_pt = p1;
     }
 
-    pub fn do_cubic(&mut self, c: CubicBez, w0: f64, w1: f64) {
+    pub fn do_cubic(&mut self, c: CubicBez, width: SegmentWidth) {
         // 1. Forward Path (Right Side in Kurbo convention -> negative width offset)
         // We use -0.5 * width.
-        offset_cubic_variable(c, -0.5 * w0, -0.5 * w1, &mut self.result_path);
+        offset_cubic_variable(c, width.scaled(-0.5), &mut self.result_path);
 
         // The first point of result_path is the "MoveTo" which corresponds to the
         // end of the join. We usually want to connect to it.
@@ -191,7 +191,7 @@ impl VariableStrokeCtx {
         self.forward_path.extend(self.result_path.iter().skip(1));
 
         // 2. Backward Path (Left Side -> positive width offset)
-        offset_cubic_variable(c, 0.5 * w0, 0.5 * w1, &mut self.result_path);
+        offset_cubic_variable(c, width.scaled(0.5), &mut self.result_path);
         self.backward_path.extend(self.result_path.iter().skip(1));
 
         self.last_pt = c.p3;

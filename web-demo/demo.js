@@ -30,6 +30,7 @@ class CurveFitterDemo {
       strokeCap: "round",
       strokeJoin: "round",
       tolerance: 0.1,
+      widthProfile: "linear",
       pointOffsets: [],
     };
 
@@ -153,6 +154,17 @@ class CurveFitterDemo {
         min: 0.05,
         max: 10,
         step: 0.05,
+      })
+      .on("change", () => this.updateDisplay());
+
+    strokeFolder
+      .addBinding(this.params, "widthProfile", {
+        label: "Width profile",
+        options: {
+          Linear: "linear",
+          Smoothstep: "smoothstep",
+          Monotone: "monotone",
+        },
       })
       .on("change", () => this.updateDisplay());
 
@@ -736,6 +748,7 @@ class CurveFitterDemo {
 
       const strokeOptions = new StrokeOptions();
       strokeOptions.set_tolerance(this.params.tolerance);
+      strokeOptions.set_width_profile(this.params.widthProfile);
 
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
@@ -1108,6 +1121,7 @@ class CurveFitterDemo {
 
       const strokeOptions = new StrokeOptions();
       strokeOptions.set_tolerance(this.params.tolerance);
+      strokeOptions.set_width_profile(this.params.widthProfile);
       this.ensurePointOffsetsInitialized();
       const strokeWidths = this.params.pointOffsets.map(
         (v) => v + this.params.strokeWidth,

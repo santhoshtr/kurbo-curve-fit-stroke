@@ -1,5 +1,5 @@
 use curve_fitter::var_stroke::VariableStroke;
-use curve_fitter::var_stroker::VariableStroker;
+use curve_fitter::var_stroker::{VariableStroker, WidthProfile};
 use curve_fitter::{InputPoint, PointType, StrokeRefitterConfig, fit_curve, refit_stroke};
 use kurbo::{ParamCurve, ParamCurveNearest, PathSeg, Point};
 
@@ -31,12 +31,19 @@ fn fidelity(raw: &kurbo::BezPath, refit: &kurbo::BezPath) -> (f64, f64) {
 
 fn run(name: &str, points: Vec<InputPoint>, widths: &[f64], closed: bool) {
     let fitted = fit_curve(points, closed).unwrap();
-    let raw = VariableStroker::new(0.1)
-        .stroke(&fitted, widths, &VariableStroke::default())
-        .unwrap();
-    let (refit, _) = refit_stroke(&raw, None, &StrokeRefitterConfig::new()).unwrap();
-    let (max_d, avg_d) = fidelity(&raw, &refit);
-    println!("{name}: max deviation {max_d:.3}, avg {avg_d:.3}");
+    for profile in [
+        WidthProfile::Linear,
+        WidthProfile::Smoothstep,
+        WidthProfile::MonotoneCubic,
+    ] {
+        let raw = VariableStroker::new(0.1)
+            .with_width_profile(profile)
+            .stroke(&fitted, widths, &VariableStroke::default())
+            .unwrap();
+        let (refit, _) = refit_stroke(&raw, None, &StrokeRefitterConfig::new()).unwrap();
+        let (max_d, avg_d) = fidelity(&raw, &refit);
+        println!("{name} {profile:?}: refit max deviation {max_d:.3}, avg {avg_d:.3}");
+    }
 }
 
 fn main() {
