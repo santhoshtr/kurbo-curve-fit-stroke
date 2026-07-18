@@ -11,6 +11,9 @@ use crate::{InputPoint, PointType};
 
 const SKELETON_MATCH_TOLERANCE: f64 = 2.0;
 
+/// Parameter threshold to consider a match "at" a segment endpoint
+const T_EPSILON: f64 = 0.05;
+
 /// Stores pre-computed information about the skeleton path for angle preservation
 ///
 /// This struct holds all necessary data to match outline points back to skeleton
@@ -39,27 +42,20 @@ pub struct SkeletonInfo {
 }
 
 impl SkeletonInfo {
-    /// Get the point type at a specific skeleton segment endpoint
+    /// Point type of the skeleton at parameter `t` along a segment
     ///
-    /// The segment_index corresponds to the endpoint of that segment in the point_types array.
-    /// Because point_types includes the initial MoveTo point at index 0, we need to add 1.
-    ///
-    /// For example:
-    /// - segment 0 (first segment) ends at point 1 → point_types[1]
-    /// - segment 1 ends at point 2 → point_types[2]
-    /// - segment 2 ends at point 3 → point_types[3]
-    ///
-    /// # Arguments
-    /// * `segment_index` - Index of the segment (0-based)
-    ///
-    /// # Returns
-    /// * `Some(PointType)` - The point type at that segment endpoint
-    /// * `None` - If the index is out of bounds
-    fn get_point_type_at_segment(&self, segment_index: usize) -> Option<PointType> {
-        // segment_index + 1 maps to the point_types array because:
-        // - segment 0 ends at point 1
-        // - segment 1 ends at point 2, etc.
-        self.point_types.get(segment_index + 1).cloned()
+    /// Near the segment ends this is the corresponding on-curve point's type
+    /// (point_types includes the initial MoveTo point at index 0, so segment i
+    /// runs from point i to point i + 1). In the interior of a segment the
+    /// skeleton is smooth by definition.
+    fn point_type_at_parameter(&self, segment_index: usize, t: f64) -> Option<PointType> {
+        if t < T_EPSILON {
+            self.point_types.get(segment_index).cloned()
+        } else if t > 1.0 - T_EPSILON {
+            self.point_types.get(segment_index + 1).cloned()
+        } else {
+            Some(PointType::Smooth)
+        }
     }
 }
 
@@ -192,7 +188,6 @@ fn extract_skeleton_angle_at_parameter(
     }
 
     let segment = &skeleton_info.segments[segment_index];
-    const T_EPSILON: f64 = 0.05; // Threshold to consider t "near" 0 or 1
 
     // Case 1: Near segment start (t ≈ 0.0) - use skeleton point's outgoing angle
     if segment_parameter_t < T_EPSILON {
@@ -539,8 +534,8 @@ pub(super) fn detect_misclassified_corners(
             && match_info.is_confident_match
         {
             // Check what type the skeleton point is
-            if let Some(skeleton_type) =
-                skeleton_info.get_point_type_at_segment(match_info.segment_index)
+            if let Some(skeleton_type) = skeleton_info
+                .point_type_at_parameter(match_info.segment_index, match_info.segment_parameter_t)
             {
                 // If skeleton is Smooth, this Corner is likely a false positive
                 if matches!(skeleton_type, PointType::Smooth) {
@@ -582,9 +577,10 @@ pub(super) fn apply_skeleton_correction_to_failures(
                 outline_points[idx].outgoing_angle = Some(skeleton_angle);
 
                 // Override point type with skeleton's type
-                if let Some(skeleton_type) =
-                    skeleton_info.get_point_type_at_segment(match_info.segment_index)
-                {
+                if let Some(skeleton_type) = skeleton_info.point_type_at_parameter(
+                    match_info.segment_index,
+                    match_info.segment_parameter_t,
+                ) {
                     outline_points[idx].point_type = skeleton_type;
                 }
 
@@ -598,4 +594,74 @@ pub(super) fn apply_skeleton_correction_to_failures(
     }
 
     (corrected_count, unmatched_count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn corner_point(x: f64, y: f64) -> InputPoint {
+        InputPoint {
+            x,
+            y,
+            point_type: PointType::Corner,
+            incoming_angle: Some(0.0),
+            outgoing_angle: Some(90.0),
+        }
+    }
+
+    #[test]
+    fn test_point_type_lookup_respects_parameter() {
+        // L-shaped skeleton with a genuine Corner at (100, 0)
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.line_to((100.0, 0.0));
+        path.line_to((100.0, 100.0));
+        let angles = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: Some(0.0),
+            },
+            InputPoint {
+                x: 100.0,
+                y: 0.0,
+                point_type: PointType::Corner,
+                incoming_angle: Some(0.0),
+                outgoing_angle: Some(90.0),
+            },
+            InputPoint {
+                x: 100.0,
+                y: 100.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(90.0),
+                outgoing_angle: None,
+            },
+        ];
+        let skeleton =
+            register_skeleton_for_preservation(&path, &angles, &[10.0, 10.0, 10.0]).unwrap();
+
+        // Outline corner offset from the skeleton corner, matching near the
+        // START (t ~ 0.03) of the second segment. The corner is genuine even
+        // though that segment's END point is Smooth.
+        let outline = vec![corner_point(106.0, 3.0)];
+        let matches = match_outline_points_to_skeleton(&outline, &skeleton);
+        let m = matches[0].as_ref().expect("confident match expected");
+        assert!(m.segment_parameter_t < T_EPSILON, "t = {}", m.segment_parameter_t);
+
+        let misclassified = detect_misclassified_corners(&outline, &skeleton, &matches);
+        assert!(
+            misclassified.is_empty(),
+            "genuine corner near segment start flagged as misclassified"
+        );
+
+        // An outline corner matched mid-segment sits on the smooth interior
+        // of the skeleton and IS misclassified.
+        let outline = vec![corner_point(106.0, 50.0)];
+        let matches = match_outline_points_to_skeleton(&outline, &skeleton);
+        let misclassified = detect_misclassified_corners(&outline, &skeleton, &matches);
+        assert_eq!(misclassified, vec![0]);
+    }
 }
