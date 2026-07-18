@@ -14,9 +14,10 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum WidthProfile {
     /// Piecewise-linear between points (width slope jumps at points)
-    #[default]
     Linear,
-    /// Per-segment smoothstep easing: zero width slope at every point
+    /// Per-segment smoothstep easing: zero width slope at every point.
+    /// The default: C1 everywhere, so the outline has no joint kinks.
+    #[default]
     Smoothstep,
     /// Monotone cubic (Fritsch-Carlson) through the width samples: continuous
     /// slope at intermediate points, zero slope only at width extrema

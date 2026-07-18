@@ -30,7 +30,7 @@ class CurveFitterDemo {
       strokeCap: "round",
       strokeJoin: "round",
       tolerance: 0.1,
-      widthProfile: "linear",
+      widthProfile: "smoothstep",
       pointOffsets: [],
     };
 

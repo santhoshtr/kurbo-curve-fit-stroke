@@ -225,7 +225,7 @@ impl StrokeOptions {
             join: Join::Round,
             interpolatable: false,
             tolerance: 0.1,
-            width_profile: WidthProfile::Linear,
+            width_profile: WidthProfile::default(),
         }
     }
 
