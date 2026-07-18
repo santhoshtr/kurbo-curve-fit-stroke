@@ -45,8 +45,9 @@ impl OffsetParams {
         let curvature = deriv.cross(deriv2) / (deriv_len * deriv_len2);
         let normal = Vec2::new(-deriv.y, deriv.x) / deriv_len; // Unit normal
 
-        // Raph's Formula: x'_{off} = (1 + k*d)x' + n*d'
-        let term_a = (1.0 + curvature * d) * deriv;
+        // Offset derivative: x'_{off} = (1 - k*d)x' + n*d'
+        // (differentiating o(t) = c(t) + d(t)*n(t); dn/dt = -k*c' with the CCW normal)
+        let term_a = (1.0 - curvature * d) * deriv;
         let term_b = normal * d_prime;
 
         let tangent = term_a + term_b;
