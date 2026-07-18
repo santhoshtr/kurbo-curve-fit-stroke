@@ -180,7 +180,7 @@ impl TwoParamCurve {
         let s = th.sin();
         let d2_cross = d2.y * c - d2.x * s;
         let d_dot = d.x * c + d.y * s;
-        (d2_cross / (d_dot * d_dot.abs())).atan2(d_dot * d_dot.abs())
+        d2_cross.atan2(d_dot * d_dot.abs())
     }
 
     pub fn endpoint_tangent(&self, th: f64) -> f64 {
