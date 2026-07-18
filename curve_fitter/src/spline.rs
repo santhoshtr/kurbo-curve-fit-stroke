@@ -1,3 +1,5 @@
+use std::f64::consts::{FRAC_PI_2, PI};
+
 use kurbo::{BezPath, Point};
 
 use crate::{
@@ -174,7 +176,61 @@ impl Spline {
             }
         }
 
+        self.compute_curvature_blending();
+
         Ok(())
+    }
+
+    /// Blend curvature across smooth points with explicit tangents.
+    ///
+    /// Within a run the solver enforces curvature continuity; at run
+    /// boundaries (smooth points with pinned tangents) the two sides meet
+    /// with only G1. Record a blended target curvature there -- the harmonic
+    /// mean of the two sides' curvatures, or zero when the sides disagree in
+    /// sign or one side has none (a line) -- which render() feeds to the
+    /// curvature-matching handle scaling.
+    ///
+    /// Ported from computeCurvatureBlending in spline-research curves.js,
+    /// including its chord pairing.
+    fn compute_curvature_blending(&mut self) {
+        fn my_tan(th: f64) -> f64 {
+            if th > FRAC_PI_2 {
+                (PI - th).tan()
+            } else if th < -FRAC_PI_2 {
+                (-PI - th).tan()
+            } else {
+                th.tan()
+            }
+        }
+
+        let length = self.ctrl_pts.len() - if self.is_closed { 0 } else { 1 };
+        for i in 0..length {
+            let pt = &self.ctrl_pts[i];
+            if !matches!(pt.ty, PointType::Smooth) || pt.lth.is_none() {
+                continue;
+            }
+
+            let k_blend = match (pt.l_ak, pt.r_ak) {
+                (Some(l_ak), Some(r_ak)) if l_ak.signum() == r_ak.signum() => {
+                    let r_k = my_tan(r_ak) / self.chord_len(i as isize - 1);
+                    let l_k = my_tan(l_ak) / self.chord_len(i as isize);
+                    2.0 / (1.0 / r_k + 1.0 / l_k)
+                }
+                // Curvature signs disagree, or one side is a line: blend
+                // toward zero curvature
+                _ => 0.0,
+            };
+            self.ctrl_pts[i].k_blend = Some(k_blend);
+        }
+    }
+
+    /// Chord length of segment i (wrapping)
+    fn chord_len(&self, i: isize) -> f64 {
+        let n = self.ctrl_pts.len();
+        let i = i.rem_euclid(n as isize) as usize;
+        let p0 = self.ctrl_pts[i].pt;
+        let p1 = self.ctrl_pts[(i + 1) % n].pt;
+        (p1 - p0).hypot()
     }
 
     pub fn render(&self) -> BezPath {
@@ -256,6 +312,42 @@ impl Spline {
 mod tests {
     use super::*;
     use crate::{InputPoint, PointType, fit_curve};
+
+
+    #[test]
+    fn test_curvature_blending_at_explicit_tangent() {
+        // An explicit-tangent smooth point splits the spline into two
+        // independently solved runs; blending must record a target curvature
+        // there so render() can reconcile the two sides.
+        let points = vec![
+            InputPoint {
+                x: 0.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+            InputPoint {
+                x: 100.0,
+                y: 60.0,
+                point_type: PointType::Smooth,
+                incoming_angle: Some(20.0),
+                outgoing_angle: Some(20.0),
+            },
+            InputPoint {
+                x: 200.0,
+                y: 0.0,
+                point_type: PointType::Smooth,
+                incoming_angle: None,
+                outgoing_angle: None,
+            },
+        ];
+        let mut spline = Spline::new(points, false);
+        spline.solve().unwrap();
+        assert!(spline.ctrl_pts[1].k_blend.is_some());
+        // Free endpoints are not blended
+        assert!(spline.ctrl_pts[0].k_blend.is_none());
+    }
 
     #[test]
     fn test_explicit_angles_horizontal() {
