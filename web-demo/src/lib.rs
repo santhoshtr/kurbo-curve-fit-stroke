@@ -747,7 +747,6 @@ pub fn fit_curve_with_stroke_and_skeleton(
                                     &skeleton_path,
                                     &skeleton_points,
                                     widths,
-                                    curve_options.cyclic,
                                 ) {
                                     Ok(skeleton_info_obj) => {
                                         match refit_stroke(
@@ -938,7 +937,6 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                                     &skeleton_path,
                                     &skeleton_points,
                                     widths,
-                                    curve_options.cyclic,
                                 ) {
                                     Ok(skeleton_info_obj) => {
                                         match refit_stroke(

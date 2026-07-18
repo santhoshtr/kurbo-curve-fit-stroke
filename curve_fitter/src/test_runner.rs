@@ -138,12 +138,8 @@ impl TestRunner {
                         "stroke must be executed before register_skeleton".to_string()
                     })?;
 
-                    let skeleton_info = register_skeleton_for_preservation(
-                        fitted_path,
-                        skeleton_angles,
-                        widths,
-                        is_closed,
-                    )?;
+                    let skeleton_info =
+                        register_skeleton_for_preservation(fitted_path, skeleton_angles, widths)?;
 
                     intermediate_results.skeleton_info = Some(skeleton_info);
                     println!("    Skeleton registered for angle preservation");
