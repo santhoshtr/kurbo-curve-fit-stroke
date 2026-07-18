@@ -135,8 +135,13 @@ impl Spline {
                     }
                 }
 
-                // Create and solve spline for this segment
-                let mut inner = TwoParamSpline::new(inner_pts, self.is_closed);
+                // Create and solve spline for this segment. The inner spline
+                // is cyclic only when this run wraps the whole path (all-smooth
+                // closed spline); runs between corners of a closed path have
+                // ordinary fixed or natural ends.
+                let is_full_cycle =
+                    self.is_closed && inner_pts.len() == self.ctrl_pts.len() + 1;
+                let mut inner = TwoParamSpline::new(inner_pts, is_full_cycle);
                 inner.set_start_tangent(self.pt(i, start).rth);
                 inner.set_end_tangent(self.pt(j - 1, start).lth);
 

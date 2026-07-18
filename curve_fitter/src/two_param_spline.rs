@@ -30,6 +30,12 @@ impl TwoParamSpline {
         self.end_th = th;
     }
 
+    /// A cyclic spline: closed with both endpoint tangents free. The first and
+    /// last control points coincide and share a single tangent across the seam.
+    fn is_cyclic(&self) -> bool {
+        self.is_closed && self.start_th.is_none() && self.end_th.is_none()
+    }
+
     /// Initialize tangent angles based on control polygon
     pub fn initial_ths(&mut self) {
         let n = self.ctrl_pts.len();
@@ -65,6 +71,30 @@ impl TwoParamSpline {
             }
         }
 
+        // Seam tangent for cyclic splines: same bend-weighted formula, with the
+        // last segment as the incoming side and the first as the outgoing side
+        if self.is_cyclic() && n >= 3 {
+            let p0 = self.ctrl_pts[n - 2];
+            let p1 = self.ctrl_pts[0]; // == ctrl_pts[n - 1]
+            let p2 = self.ctrl_pts[1];
+
+            let dx0 = p1.x - p0.x;
+            let dy0 = p1.y - p0.y;
+            let l0 = (dx0 * dx0 + dy0 * dy0).sqrt();
+
+            let dx1 = p2.x - p1.x;
+            let dy1 = p2.y - p1.y;
+            let l1 = (dx1 * dx1 + dy1 * dy1).sqrt();
+
+            let th0 = dy0.atan2(dx0);
+            let th1 = dy1.atan2(dx1);
+            let bend = mod2pi(th1 - th0);
+            let th = mod2pi(th0 + bend * l0 / (l0 + l1));
+
+            self.ths[0] = th;
+            self.ths[n - 1] = th;
+        }
+
         if let Some(start_th) = self.start_th {
             self.ths[0] = start_th;
         }
@@ -94,22 +124,20 @@ impl TwoParamSpline {
             return 0.0;
         }
 
-        // Fix endpoint tangents
-        if self.start_th.is_none() {
-            let ths0 = self.get_ths(0);
-            self.ths[0] += curve.endpoint_tangent(ths0.th1) - ths0.th0;
-        }
+        // Fix free endpoint tangents to their natural boundary condition.
+        // A cyclic spline has no ends: its seam is a joint like any other,
+        // handled with the corrections below.
+        let cyclic = self.is_cyclic();
+        if !cyclic {
+            if self.start_th.is_none() {
+                let ths0 = self.get_ths(0);
+                self.ths[0] += curve.endpoint_tangent(ths0.th1) - ths0.th0;
+            }
 
-        if self.end_th.is_none() {
-            let ths0 = self.get_ths(n - 2);
-            self.ths[n - 1] -= curve.endpoint_tangent(ths0.th0) - ths0.th1;
-        }
-
-        // Correction to match start/end tangents on closed curves
-        if self.is_closed && self.start_th.is_none() && self.end_th.is_none() {
-            let avgth = (self.ths[0] + self.ths[n - 1]) / 2.0;
-            self.ths[0] = avgth;
-            self.ths[n - 1] = avgth;
+            if self.end_th.is_none() {
+                let ths0 = self.get_ths(n - 2);
+                self.ths[n - 1] -= curve.endpoint_tangent(ths0.th0) - ths0.th1;
+            }
         }
 
         // A 2-point spline has no interior points: only the endpoint tangent
@@ -149,11 +177,39 @@ impl TwoParamSpline {
             curvature_0 = curvature_1;
         }
 
+        // Seam joint of a cyclic spline: the same Newton step between the last
+        // and first segments, applied to the shared seam tangent (ths[0] and
+        // ths[n-1] stay equal, describing one physical tangent).
+        let mut seam_correction = 0.0;
+        if cyclic {
+            let ths_last = self.get_ths(n - 2);
+            let ak_last = curve.compute_curvature(ths_last.th0, ths_last.th1);
+            let ths_first = self.get_ths(0);
+            let ak_first = curve.compute_curvature(ths_first.th0, ths_first.th1);
+
+            let err = self.compute_curvature_error(&ths_last, &ak_last, &ths_first, &ak_first);
+            abs_err += err.abs();
+
+            let epsilon = 1e-3;
+            let ak_last_p = curve.compute_curvature(ths_last.th0, ths_last.th1 + epsilon);
+            let ak_first_p = curve.compute_curvature(ths_first.th0 - epsilon, ths_first.th1);
+            let err_p = self.compute_curvature_error(&ths_last, &ak_last_p, &ths_first, &ak_first_p);
+            let derr = (err_p - err) / epsilon;
+
+            if derr.abs() > 1e-12 {
+                seam_correction = err / derr;
+            }
+        }
+
         // Apply corrections with damping
         let scale = (0.25 * (iter + 1) as f64).tanh();
         #[allow(clippy::needless_range_loop)]
         for i in 0..n - 2 {
             self.ths[i + 1] += scale * corrections[i];
+        }
+        if cyclic {
+            self.ths[0] += scale * seam_correction;
+            self.ths[n - 1] += scale * seam_correction;
         }
 
         abs_err
