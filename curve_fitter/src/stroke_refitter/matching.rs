@@ -1,9 +1,12 @@
 //! Skeleton registration and outline-to-skeleton matching.
 
-use kurbo::{BezPath, PathEl, Point, Vec2};
+use kurbo::{
+    BezPath, CubicBez, Line, ParamCurve, ParamCurveDeriv, ParamCurveNearest, PathEl, PathSeg,
+    Point, QuadBez, Vec2,
+};
 
 use super::extraction::extract_subpaths;
-use super::{EPS, vec2_to_angle_degrees};
+use super::vec2_to_angle_degrees;
 use crate::{InputPoint, PointType};
 
 const SKELETON_MATCH_TOLERANCE: f64 = 2.0;
@@ -60,17 +63,11 @@ impl SkeletonInfo {
     }
 }
 
-/// One segment of the skeleton path with pre-computed geometry
-///
-/// A segment is a single path element (LineTo, QuadTo, or CurveTo).
-/// We cache geometric information to avoid recalculating during matching.
+/// One segment of the skeleton path with its stroke widths
 #[derive(Clone, Debug)]
 struct SkeletonSegment {
-    /// Start point of this segment (on-curve)
-    start_point: Point,
-
-    /// End point of this segment (on-curve)
-    end_point: Point,
+    /// The segment geometry
+    seg: PathSeg,
 
     /// Stroke width at segment start
     /// Used for offset distance validation
@@ -79,10 +76,6 @@ struct SkeletonSegment {
     /// Stroke width at segment end
     /// Used for offset distance validation and interpolation
     end_width: f64,
-
-    /// The actual path element (LineTo, QuadTo, CurveTo)
-    /// Stored for derivative calculation at arbitrary parameters
-    element: PathEl,
 }
 
 /// Result of matching an outline point back to skeleton geometry
@@ -150,140 +143,20 @@ fn interpolate_width_at_parameter(segment: &SkeletonSegment, t: f64) -> f64 {
 ///
 /// Returns a tangent vector (may be zero-length for degenerate segments).
 fn compute_segment_tangent_at_parameter(segment: &SkeletonSegment, t: f64) -> Vec2 {
-    let p0 = segment.start_point;
-
-    match segment.element {
-        PathEl::LineTo(p1) => {
-            // For line, tangent is constant
-            p1 - p0
-        }
-        PathEl::QuadTo(cp, p2) => {
-            // Quadratic Bézier derivative
-            // B'(t) = 2(1-t)(cp - p0) + 2*t(p2 - cp)
-
-            2.0 * ((1.0 - t) * (cp - p0) + t * (p2 - cp))
-        }
-        PathEl::CurveTo(cp1, cp2, p3) => {
-            // Cubic Bézier derivative
-            // B'(t) = 3(1-t)²(cp1-p0) + 6(1-t)t(cp2-cp1) + 3t²(p3-cp2)
-            let t2 = t * t;
-            let one_minus_t = 1.0 - t;
-            let one_minus_t2 = one_minus_t * one_minus_t;
-
-            3.0 * (one_minus_t2 * (cp1 - p0)
-                + 2.0 * one_minus_t * t * (cp2 - cp1)
-                + t2 * (p3 - cp2))
-        }
-        _ => Vec2::ZERO,
+    match segment.seg {
+        PathSeg::Line(l) => l.p1 - l.p0,
+        PathSeg::Quad(q) => q.deriv().eval(t).to_vec2(),
+        PathSeg::Cubic(c) => c.deriv().eval(t).to_vec2(),
     }
 }
 
-/// Find the closest point on a skeleton segment to an outline point
+/// Find the nearest point on a skeleton segment to an outline point
 ///
-/// For the outline point to be matched to a skeleton location, we need to find
-/// the point on the skeleton that is closest to it. This is the perpendicular
-/// projection for lines, and requires numerical search for curves.
-///
-/// # Returns
-///
-/// * `(closest_point, parameter_t, distance)`
-///
-/// # Algorithm
-///
-/// For **LineTo**:
-///   - Perpendicular projection is trivial
-///   - Calculate t and clamp to [0, 1]
-///
-/// For **QuadTo/CurveTo**:
-///   - Use numerical search (sample multiple t values)
-///   - Find t that minimizes distance
-fn closest_point_on_segment(segment: &SkeletonSegment, query_point: Point) -> (Point, f64, f64) {
-    let p0 = segment.start_point;
-    let p1 = segment.end_point;
-
-    match segment.element {
-        PathEl::LineTo(_) => {
-            // Simple line-point distance
-            let line_vec = p1 - p0;
-            let line_len_sq = line_vec.hypot2();
-
-            if line_len_sq < EPS {
-                // Degenerate line segment
-                return (p0, 0.0, (query_point - p0).hypot());
-            }
-
-            // Project query_point onto the line
-            let to_query = query_point - p0;
-            let t = (to_query.dot(line_vec) / line_len_sq).clamp(0.0, 1.0);
-            let closest = p0 + line_vec * t;
-            let distance = (query_point - closest).hypot();
-
-            (closest, t, distance)
-        }
-        PathEl::QuadTo(_cp, _p2) | PathEl::CurveTo(_cp, _, _p2) => {
-            // Numerical search: sample the curve at multiple points
-            // and find the parameter with minimum distance
-            const SAMPLES: usize = 20;
-            let mut best_t = 0.0;
-            let mut best_dist = f64::INFINITY;
-            let mut best_point = p0;
-
-            for i in 0..=SAMPLES {
-                let t = (i as f64) / (SAMPLES as f64);
-
-                // Evaluate curve at parameter t
-                let curve_point = match segment.element {
-                    PathEl::QuadTo(cp, p2) => {
-                        // Quadratic Bézier: B(t) = (1-t)²p0 + 2(1-t)t*cp + t²p2
-                        let one_minus_t = 1.0 - t;
-                        let coeff0 = one_minus_t * one_minus_t;
-                        let coeff1 = 2.0 * one_minus_t * t;
-                        let coeff2 = t * t;
-                        let p0_vec = p0.to_vec2();
-                        let cp_vec = cp.to_vec2();
-                        let p2_vec = p2.to_vec2();
-                        let result_vec = coeff0 * p0_vec + coeff1 * cp_vec + coeff2 * p2_vec;
-                        Point::new(result_vec.x, result_vec.y)
-                    }
-                    PathEl::CurveTo(cp1, cp2, p3) => {
-                        // Cubic Bézier: B(t) = (1-t)³p0 + 3(1-t)²t*cp1 + 3(1-t)t²*cp2 + t³p3
-                        let one_minus_t = 1.0 - t;
-                        let one_minus_t2 = one_minus_t * one_minus_t;
-                        let one_minus_t3 = one_minus_t2 * one_minus_t;
-                        let t2 = t * t;
-                        let t3 = t2 * t;
-
-                        let coeff0 = one_minus_t3;
-                        let coeff1 = 3.0 * one_minus_t2 * t;
-                        let coeff2 = 3.0 * one_minus_t * t2;
-                        let coeff3 = t3;
-
-                        let p0_vec = p0.to_vec2();
-                        let cp1_vec = cp1.to_vec2();
-                        let cp2_vec = cp2.to_vec2();
-                        let p3_vec = p3.to_vec2();
-                        let result_vec =
-                            coeff0 * p0_vec + coeff1 * cp1_vec + coeff2 * cp2_vec + coeff3 * p3_vec;
-                        Point::new(result_vec.x, result_vec.y)
-                    }
-                    _ => p0,
-                };
-
-                let dist = (query_point - curve_point).hypot();
-                if dist < best_dist {
-                    best_dist = dist;
-                    best_t = t;
-                    best_point = curve_point;
-                }
-            }
-
-            (best_point, best_t, best_dist)
-        }
-        _ => {
-            // Fallback for other elements
-            (p0, 0.0, (query_point - p0).hypot())
-        }
-    }
+/// Returns `(parameter_t, distance)` for the closest location on the segment.
+fn closest_point_on_segment(segment: &SkeletonSegment, query_point: Point) -> (f64, f64) {
+    const NEAREST_ACCURACY: f64 = 1e-9;
+    let nearest = segment.seg.nearest(query_point, NEAREST_ACCURACY);
+    (nearest.t, nearest.distance_sq.sqrt())
 }
 
 /// Extract the skeleton angle at a specific location on a skeleton segment
@@ -496,10 +369,19 @@ pub fn register_skeleton_for_preservation(
                 current_pos = p;
                 point_index += 1;
             }
-            PathEl::LineTo(p) | PathEl::QuadTo(_, p) | PathEl::CurveTo(_, _, p) => {
+            PathEl::LineTo(..) | PathEl::QuadTo(..) | PathEl::CurveTo(..) => {
                 if point_index >= widths.len() {
                     break;
                 }
+
+                let seg = match el {
+                    PathEl::LineTo(p) => PathSeg::Line(Line::new(current_pos, p)),
+                    PathEl::QuadTo(cp, p) => PathSeg::Quad(QuadBez::new(current_pos, cp, p)),
+                    PathEl::CurveTo(cp1, cp2, p) => {
+                        PathSeg::Cubic(CubicBez::new(current_pos, cp1, cp2, p))
+                    }
+                    _ => unreachable!(),
+                };
 
                 let start_width = if point_index > 0 {
                     widths[point_index - 1]
@@ -508,15 +390,13 @@ pub fn register_skeleton_for_preservation(
                 };
                 let end_width = widths[point_index];
 
+                current_pos = seg.end();
                 segments.push(SkeletonSegment {
-                    start_point: current_pos,
-                    end_point: p,
+                    seg,
                     start_width,
                     end_width,
-                    element: el,
                 });
 
-                current_pos = p;
                 point_index += 1;
             }
             PathEl::ClosePath => {
@@ -562,11 +442,14 @@ pub fn register_skeleton_for_preservation(
 /// - Non-confident matches are simply None; no error is raised
 /// - This allows robust handling of caps, joins, and artifacts
 /// - Points with None matches keep their outline-extracted angles
-fn match_outline_points_to_skeleton(
+pub(super) fn match_outline_points_to_skeleton(
     outline_points: &[InputPoint],
     skeleton_info: &SkeletonInfo,
-    distance_tolerance: f64,
 ) -> Vec<Option<OutlineSkeletonMatch>> {
+    if skeleton_info.segments.is_empty() {
+        return vec![None; outline_points.len()];
+    }
+
     let mut matches = Vec::new();
 
     for outline_point in outline_points {
@@ -578,19 +461,13 @@ fn match_outline_points_to_skeleton(
         let mut best_distance = f64::INFINITY;
 
         for (i, segment) in skeleton_info.segments.iter().enumerate() {
-            let (_closest_point, t, distance) = closest_point_on_segment(segment, query_point);
+            let (t, distance) = closest_point_on_segment(segment, query_point);
 
             if distance < best_distance {
                 best_distance = distance;
                 best_t = t;
                 best_segment_index = i;
             }
-        }
-
-        // No segments available
-        if skeleton_info.segments.is_empty() {
-            matches.push(None);
-            continue;
         }
 
         let best_segment = &skeleton_info.segments[best_segment_index];
@@ -601,7 +478,7 @@ fn match_outline_points_to_skeleton(
 
         // Validate distance matches expected offset
         let distance_delta = (best_distance - expected_offset).abs();
-        let is_confident = distance_delta <= distance_tolerance;
+        let is_confident = distance_delta <= SKELETON_MATCH_TOLERANCE;
 
         // Extract skeleton angle if confident match
         let skeleton_angle = if is_confident {
@@ -647,12 +524,9 @@ fn match_outline_points_to_skeleton(
 pub(super) fn detect_misclassified_corners(
     outline_points: &[InputPoint],
     skeleton_info: &SkeletonInfo,
+    skeleton_matches: &[Option<OutlineSkeletonMatch>],
 ) -> Vec<usize> {
     let mut misclassified = Vec::new();
-
-    // Match all outline points to skeleton
-    let skeleton_matches =
-        match_outline_points_to_skeleton(outline_points, skeleton_info, SKELETON_MATCH_TOLERANCE);
 
     for (i, point) in outline_points.iter().enumerate() {
         // Only examine Corner points
@@ -681,21 +555,16 @@ pub(super) fn detect_misclassified_corners(
 
 /// Apply skeleton angle corrections to specific failing points
 ///
-/// # Returns
-///
-/// * `Ok((corrected_count, unmatched_count))` - Number of corrections applied and unmatched failures
-/// * `Err(String)` - If matching fails with an error
+/// Returns `(corrected_count, unmatched_count)`: corrections applied and
+/// failing points without a confident skeleton match.
 pub(super) fn apply_skeleton_correction_to_failures(
     outline_points: &mut [InputPoint],
     failing_indices: &[usize],
     skeleton_info: &SkeletonInfo,
-) -> Result<(usize, usize), String> {
+    skeleton_matches: &[Option<OutlineSkeletonMatch>],
+) -> (usize, usize) {
     let mut corrected_count = 0;
     let mut unmatched_count = 0;
-
-    // Match all outline points back to skeleton locations
-    let skeleton_matches =
-        match_outline_points_to_skeleton(outline_points, skeleton_info, SKELETON_MATCH_TOLERANCE);
 
     for &idx in failing_indices {
         if idx >= outline_points.len() {
@@ -728,5 +597,5 @@ pub(super) fn apply_skeleton_correction_to_failures(
         unmatched_count += 1;
     }
 
-    Ok((corrected_count, unmatched_count))
+    (corrected_count, unmatched_count)
 }

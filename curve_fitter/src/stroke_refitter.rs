@@ -19,7 +19,10 @@ use kurbo::{BezPath, Vec2};
 
 use crate::fit_curve;
 use extraction::{extract_subpaths, subpath_to_input_points};
-use matching::{apply_skeleton_correction_to_failures, detect_misclassified_corners};
+use matching::{
+    apply_skeleton_correction_to_failures, detect_misclassified_corners,
+    match_outline_points_to_skeleton,
+};
 use smoothing::{
     detect_g1_failures, g1_smooth, validate_combined_path_continuity, validate_g1_smooth,
 };
@@ -296,57 +299,48 @@ pub fn refit_stroke(
 
         // If skeleton is provided, apply selective skeleton correction
         if let Some(skeleton) = skeleton_info {
+            // Matches depend only on point positions, which the corrections
+            // below never change: compute once per subpath and reuse.
+            let matches = match_outline_points_to_skeleton(&input_points, skeleton);
+
             // Stage 1b: Detect and correct misclassified Corners
             // Some Corner points might be false positives from stroking artifacts
             // If they match to Smooth skeleton points, correct them
-            let misclassified_corners = detect_misclassified_corners(&input_points, skeleton);
+            let misclassified_corners =
+                detect_misclassified_corners(&input_points, skeleton, &matches);
             if !misclassified_corners.is_empty() {
                 diagnostics.misclassified_corners += misclassified_corners.len();
-                match apply_skeleton_correction_to_failures(
+                let (corrected_count, _unmatched_count) = apply_skeleton_correction_to_failures(
                     &mut input_points,
                     &misclassified_corners,
                     skeleton,
-                ) {
-                    Ok((corrected_count, _unmatched_count)) => {
-                        diagnostics.misclassified_corners_corrected += corrected_count;
-                    }
-                    Err(e) => {
-                        diagnostics
-                            .warnings
-                            .push(format!("Could not correct misclassified corners: {}", e));
-                    }
-                }
+                    &matches,
+                );
+                diagnostics.misclassified_corners_corrected += corrected_count;
             }
 
             // Stage 2: Detect failures and apply selective skeleton correction
             let failures = detect_g1_failures(&input_points, G1_FAILURE_TOLERANCE_DEGREES);
             if !failures.is_empty() {
                 diagnostics.g1_failures += failures.len();
-                // Try to correct failing points using skeleton information
-                match apply_skeleton_correction_to_failures(&mut input_points, &failures, skeleton)
-                {
-                    Ok((corrected_count, _unmatched_count)) => {
-                        diagnostics.g1_failures_corrected += corrected_count;
+                let (corrected_count, _unmatched_count) = apply_skeleton_correction_to_failures(
+                    &mut input_points,
+                    &failures,
+                    skeleton,
+                    &matches,
+                );
+                diagnostics.g1_failures_corrected += corrected_count;
 
-                        // Re-apply G1 smoothing to all points after corrections
-                        // This propagates skeleton-corrected angles to neighbors
-                        g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
+                // Re-apply G1 smoothing to all points after corrections
+                // This propagates skeleton-corrected angles to neighbors
+                g1_smooth(&mut input_points, config.g1_smooth_threshold_degrees);
 
-                        // Validate again (but don't fail if it still doesn't pass)
-                        if let Err(e) = validate_g1_smooth(&input_points) {
-                            // Fallback: record and continue
-                            diagnostics.warnings.push(format!(
-                                "G1 validation still failed after skeleton correction: {}",
-                                e
-                            ));
-                        }
-                    }
-                    Err(e) => {
-                        // Matching error - record and continue
-                        diagnostics
-                            .warnings
-                            .push(format!("Skeleton matching failed during correction: {}", e));
-                    }
+                // Validate again (but don't fail if it still doesn't pass)
+                if let Err(e) = validate_g1_smooth(&input_points) {
+                    diagnostics.warnings.push(format!(
+                        "G1 validation still failed after skeleton correction: {}",
+                        e
+                    ));
                 }
             } else {
                 // No failures detected: validate that smoothing worked correctly
