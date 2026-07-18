@@ -1,1 +1,1 @@
-- [ ] refitter - copy the tangent angles from the base path for corrections. or cross check.
+- [x] refitter - copy the tangent angles from the base path for corrections. or cross check. @done(07/18/26 10:39)
