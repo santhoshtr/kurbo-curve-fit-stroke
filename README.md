@@ -41,8 +41,8 @@ Simplification APIs are not usable as they also add non-deterministic points.
 
 A simple stupid trick I have used in this repo for achieving interpolation
 is to make the sub-divisions of the outline
-for a path segment deterministic. Initially I used 4 sub-divisions for every path segment.
-But later I changed it to dynamic based on the curvature of the source path.
+for a path segment deterministic: every path segment is split into a fixed
+number of sub-divisions (currently 2, independent of the widths).
 The resulting curves are interpolatable but lost the perfection from the previous step
 where the stroke calculation was based on a complex error reduction strategy. My approach reduced that to a
 simpler Tiller-Hanson-like approach.

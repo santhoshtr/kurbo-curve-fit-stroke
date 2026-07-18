@@ -66,7 +66,7 @@ impl VariableStroker {
                         ctx.do_join(style, tan0, w0, self.tolerance);
 
                         // Convert Quad to Cubic for variable offset
-                        ctx.do_cubic(q.raise(), w0, w1, self.tolerance);
+                        ctx.do_cubic(q.raise(), w0, w1);
 
                         ctx.last_tan = tan1;
                         ctx.last_width = w1;
@@ -80,7 +80,7 @@ impl VariableStroker {
 
                         ctx.do_join(style, tan0, w0, self.tolerance);
 
-                        ctx.do_cubic(c, w0, w1, self.tolerance);
+                        ctx.do_cubic(c, w0, w1);
 
                         ctx.last_tan = tan1;
                         ctx.last_width = w1;

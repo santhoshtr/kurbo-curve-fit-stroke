@@ -1,20 +1,14 @@
 // Copyright 2022 the Kurbo Authors (Modified for Variable Width)
 // SPDX-License-Identifier: Apache-2.0 OR MIT
-use kurbo::{BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, QuadBez, Vec2};
-/// State used for computing a variable-width offset curve of a single cubic.
-struct VariableCubicOffset {
-    /// The cubic being offset.
-    c: CubicBez,
-    /// The derivative of `c`.
-    #[allow(dead_code)]
-    q: QuadBez,
-    /// Start width (at t=0)
-    w0: f64,
-    /// End width (at t=1)
-    w1: f64,
-    #[allow(dead_code)]
-    tolerance: f64,
-}
+use kurbo::{BezPath, CubicBez, ParamCurve, ParamCurveDeriv, Point, Vec2};
+
+/// Number of cubic segments generated per source segment.
+///
+/// The count is fixed (rather than adaptive to an error tolerance) so that
+/// outlines stroked from the same skeleton with different widths always have
+/// the same number of points, which keeps them interpolatable for variable
+/// fonts.
+const NUM_SUBDIVISIONS: usize = 2;
 
 struct OffsetParams {
     pos: Point,
@@ -62,89 +56,70 @@ impl OffsetParams {
 /// * `w0`: The offset distance at t=0.
 /// * `w1`: The offset distance at t=1.
 ///
-/// Width is interpolated linearly with t between w0 and w1.
-pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, tolerance: f64, result: &mut BezPath) {
+/// Width is interpolated linearly with t between w0 and w1. The result has
+/// exactly [`NUM_SUBDIVISIONS`] cubic segments.
+pub fn offset_cubic_variable(c: CubicBez, w0: f64, w1: f64, result: &mut BezPath) {
     result.truncate(0);
 
-    let offset = VariableCubicOffset::new(c, w0, w1, tolerance);
+    let start = OffsetParams::new(&c, 0.0, w0, w1);
+    result.move_to(start.pos);
 
-    // Calculate initial MoveTo
-    let start_params = OffsetParams::new(&c, 0.0, w0, w1);
-    result.move_to(start_params.pos);
-    let depth = 1;
-    offset.recurse(0.0, 1.0, 0, depth, result);
+    for i in 0..NUM_SUBDIVISIONS {
+        let t0 = i as f64 / NUM_SUBDIVISIONS as f64;
+        let t1 = (i + 1) as f64 / NUM_SUBDIVISIONS as f64;
+        fit_offset_segment(&c, t0, t1, w0, w1, result);
+    }
 }
 
-impl VariableCubicOffset {
-    fn new(c: CubicBez, w0: f64, w1: f64, tolerance: f64) -> Self {
-        // The factor 2.0 comes from the second derivative of cubic
-        VariableCubicOffset {
-            c,
-            q: c.deriv(),
-            w0,
-            w1,
-            tolerance,
-        }
-    }
+/// Fit one cubic to the offset curve over [t0, t1] and append it to `result`.
+///
+/// One-point shape control: the cubic interpolates the offset positions and
+/// tangent directions at t0 and t1, with handle lengths solved so the curve
+/// passes through the offset position at the interval midpoint.
+fn fit_offset_segment(c: &CubicBez, t0: f64, t1: f64, w0: f64, w1: f64, result: &mut BezPath) {
+    let p0 = OffsetParams::new(c, t0, w0, w1);
+    let p3 = OffsetParams::new(c, t1, w0, w1);
 
-    /// Recursively split until we hit target depth, then generate a segment.
-    fn recurse(&self, t0: f64, t1: f64, depth: usize, target_depth: usize, result: &mut BezPath) {
-        if depth < target_depth {
-            let mid = (t0 + t1) / 2.0;
-            self.recurse(t0, mid, depth + 1, target_depth, result);
-            self.recurse(mid, t1, depth + 1, target_depth, result);
-        } else {
-            // One-Point Shape Control Fit
-            let p0 = OffsetParams::new(&self.c, t0, self.w0, self.w1);
-            let p3 = OffsetParams::new(&self.c, t1, self.w0, self.w1);
+    let t_mid = (t0 + t1) / 2.0;
+    let p_mid = OffsetParams::new(c, t_mid, w0, w1);
 
-            let t_mid = (t0 + t1) / 2.0;
-            let p_mid = OffsetParams::new(&self.c, t_mid, self.w0, self.w1);
+    // Use normalized directions for the solver
+    let v0 = if p0.tangent.hypot2() > 1e-12 {
+        p0.tangent.normalize()
+    } else {
+        Vec2::ZERO
+    };
+    let v1 = if p3.tangent.hypot2() > 1e-12 {
+        p3.tangent.normalize()
+    } else {
+        Vec2::ZERO
+    };
 
-            // Fit cubic passing through p0.pos, p_mid.pos, p3.pos
-            // with tangents p0.tangent and p3.tangent.
+    // Solve for alpha, beta
+    // M = (P0 + P3)/2 + 3/8 (alpha V0 - beta V1)
+    // Delta = 8/3 * (M - Mid_Chord)
+    let mid_chord = p0.pos + (p3.pos - p0.pos) * 0.5;
+    let delta = (8.0 / 3.0) * (p_mid.pos - mid_chord);
 
-            // Use normalized directions for the solver
-            let v0 = if p0.tangent.hypot2() > 1e-12 {
-                p0.tangent.normalize()
-            } else {
-                Vec2::ZERO
-            };
-            let v1 = if p3.tangent.hypot2() > 1e-12 {
-                p3.tangent.normalize()
-            } else {
-                Vec2::ZERO
-            };
+    // System: alpha * V0 - beta * V1 = Delta
+    // Cross product solution (Cramer's rule variant for 2D vectors)
+    // alpha (V0 x V1) = Delta x V1
+    // beta (V0 x V1) = Delta x V0
 
-            // Solve for alpha, beta
-            // M = (P0 + P3)/2 + 3/8 (alpha V0 - beta V1)
-            // Delta = 8/3 * (M - Mid_Chord)
-            let mid_chord = p0.pos + (p3.pos - p0.pos) * 0.5;
-            let delta = (8.0 / 3.0) * (p_mid.pos - mid_chord);
+    let det = v0.cross(v1);
 
-            // System: alpha * V0 - beta * V1 = Delta
-            // Cross product solution (Cramer's rule variant for 2D vectors)
-            // alpha (V0 x V1) = Delta x V1
-            // beta (V0 x V1) = Delta x V0  (Check signs)
+    let (p1, p2) = if det.abs() > 1e-6 {
+        let alpha = delta.cross(v1) / det;
+        let beta = delta.cross(v0) / det;
 
-            let det = v0.cross(v1);
+        // Note: alpha/beta are not clamped; extreme tangent/midpoint
+        // combinations can produce handles that make the segment self-loop.
+        (p0.pos + v0 * alpha, p3.pos - v1 * beta)
+    } else {
+        // Tangents are parallel. Fallback to standard 1/3 approximation.
+        let len = (p3.pos - p0.pos).hypot();
+        (p0.pos + v0 * (len / 3.0), p3.pos - v1 * (len / 3.0))
+    };
 
-            let (p1, p2) = if det.abs() > 1e-6 {
-                let alpha = delta.cross(v1) / det;
-                let beta = delta.cross(v0) / det; // Note: -beta * V1 in formula implies we add it back
-
-                // Heuristic safety: clamp handles to reasonable lengths to prevent loops
-                // if the tangents are fighting the midpoint.
-                // (Skipped for brevity, but recommended in prod)
-
-                (p0.pos + v0 * alpha, p3.pos - v1 * beta)
-            } else {
-                // Tangents are parallel. Fallback to standard 1/3 approximation.
-                let len = (p3.pos - p0.pos).hypot();
-                (p0.pos + v0 * (len / 3.0), p3.pos - v1 * (len / 3.0))
-            };
-
-            result.curve_to(p1, p2, p3.pos);
-        }
-    }
+    result.curve_to(p1, p2, p3.pos);
 }
