@@ -93,7 +93,7 @@ impl TestRunner {
                     let stroker = VariableStroker::new(stroke_config.tolerance);
                     let stroke_style = VariableStroke::default();
                     let stroke_path =
-                        stroker.stroke(fitted_path, &stroke_config.widths, &stroke_style);
+                        stroker.stroke(fitted_path, &stroke_config.widths, &stroke_style)?;
 
                     intermediate_results.stroke_path = Some(stroke_path.clone());
                     intermediate_results.stroke_widths = Some(stroke_config.widths.clone());

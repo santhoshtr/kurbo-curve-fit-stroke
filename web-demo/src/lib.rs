@@ -529,7 +529,13 @@ pub fn fit_curve_with_stroke(
                     .with_join(stroke_options.join);
 
                 let stroker = VariableStroker::new(stroke_options.tolerance);
-                stroker.stroke(&bez_path, widths, &style)
+                match stroker.stroke(&bez_path, widths, &style) {
+                    Ok(stroked) => stroked,
+                    Err(e) => {
+                        console_log!("Error: {}", e);
+                        return Vec::new();
+                    }
+                }
             };
 
             // Refit the stroke outline to get cleaner curves
@@ -638,7 +644,13 @@ pub fn curve_to_svg_path_with_stroke(
                         .with_join(stroke_options.join);
 
                     let stroker = VariableStroker::new(stroke_options.tolerance);
-                    stroker.stroke(&bez_path, widths, &style)
+                    match stroker.stroke(&bez_path, widths, &style) {
+                        Ok(stroked) => stroked,
+                        Err(e) => {
+                            console_log!("Error: {}", e);
+                            return String::new();
+                        }
+                    }
                 };
 
                 // Refit the stroke outline to get cleaner curves
@@ -734,7 +746,13 @@ pub fn fit_curve_with_stroke_and_skeleton(
                     .with_join(stroke_options.join);
 
                 let stroker = VariableStroker::new(stroke_options.tolerance);
-                stroker.stroke(&bez_path, widths, &style)
+                match stroker.stroke(&bez_path, widths, &style) {
+                    Ok(stroked) => stroked,
+                    Err(e) => {
+                        console_log!("Error: {}", e);
+                        return Vec::new();
+                    }
+                }
             };
 
             // Apply skeleton-aware refitting if skeleton is provided
@@ -924,7 +942,13 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
                     .with_join(stroke_options.join);
 
                 let stroker = VariableStroker::new(stroke_options.tolerance);
-                stroker.stroke(&bez_path, widths, &style)
+                match stroker.stroke(&bez_path, widths, &style) {
+                    Ok(stroked) => stroked,
+                    Err(e) => {
+                        console_log!("Error: {}", e);
+                        return String::new();
+                    }
+                }
             };
 
             // Apply skeleton-aware refitting if skeleton is provided
