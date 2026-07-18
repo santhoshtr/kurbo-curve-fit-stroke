@@ -3,10 +3,19 @@ name = "curve_fitter"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["cli"]
+# JSON test-runner CLI (src/main.rs). Library consumers can opt out with
+# default-features = false to avoid pulling serde/serde_json/clap.
+cli = ["dep:serde", "dep:serde_json", "dep:clap"]
+
 [dependencies]
 kurbo = { workspace = true }
-arrayvec = "0.7.6"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-clap = { workspace = true }
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+clap = { workspace = true, optional = true }
 
+[[bin]]
+name = "curve_fitter"
+path = "src/main.rs"
+required-features = ["cli"]

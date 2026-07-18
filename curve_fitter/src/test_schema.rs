@@ -104,13 +104,6 @@ impl TestCase {
         let test_case = serde_json::from_str(&content)?;
         Ok(test_case)
     }
-
-    /// Save a test case to a JSON file
-    pub fn to_file(&self, path: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(path, content)?;
-        Ok(())
-    }
 }
 
 #[cfg(test)]

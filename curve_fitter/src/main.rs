@@ -4,7 +4,11 @@ use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 
-use curve_fitter::TestRunner;
+mod test_runner;
+mod test_schema;
+
+use test_runner::TestRunner;
+use test_schema::TestCase;
 
 #[derive(Parser)]
 #[command(name = "curve-fit")]
@@ -72,7 +76,7 @@ fn run_single_test(
         std::process::exit(1);
     }
 
-    let test_case = curve_fitter::TestCase::from_file(path)?;
+    let test_case = TestCase::from_file(path)?;
     runner.run_test(&test_case).map_err(|e| e.into())
 }
 
@@ -94,7 +98,7 @@ fn run_all_tests(runner: &TestRunner, dir: &PathBuf) -> Result<(), Box<dyn std::
         if path.extension().is_some_and(|ext| ext == "json") {
             test_count += 1;
 
-            match curve_fitter::TestCase::from_file(&path) {
+            match TestCase::from_file(&path) {
                 Ok(test_case) => {
                     if let Err(e) = runner.run_test(&test_case) {
                         println!("✗ Test FAILED: {}", e);
@@ -151,7 +155,7 @@ fn list_available_tests() -> Result<(), Box<dyn std::error::Error>> {
         let path = entry.path();
 
         if path.extension().is_some_and(|ext| ext == "json")
-            && let Ok(test_case) = curve_fitter::TestCase::from_file(&path)
+            && let Ok(test_case) = TestCase::from_file(&path)
         {
             count += 1;
             println!("  • {} - {}", test_case.name, test_case.description);

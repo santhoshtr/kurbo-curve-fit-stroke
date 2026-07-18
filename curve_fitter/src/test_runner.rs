@@ -9,9 +9,9 @@ use std::path::PathBuf;
 use kurbo::BezPath;
 
 use crate::test_schema::{InputPointJson, TestCase};
-use crate::var_stroke::VariableStroke;
-use crate::var_stroker::VariableStroker;
-use crate::{
+use curve_fitter::var_stroke::VariableStroke;
+use curve_fitter::var_stroker::VariableStroker;
+use curve_fitter::{
     InputPoint, PointType, SkeletonInfo, StrokeRefitterConfig, fit_curve, refit_stroke,
     register_skeleton_for_preservation,
 };
@@ -215,7 +215,7 @@ impl TestRunner {
 }
 
 /// Print refit diagnostics collected by the library
-fn print_diagnostics(diagnostics: &crate::RefitDiagnostics) {
+fn print_diagnostics(diagnostics: &curve_fitter::RefitDiagnostics) {
     if diagnostics.misclassified_corners > 0 {
         println!(
             "    Misclassified corners: {} detected, {} corrected",

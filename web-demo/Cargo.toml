@@ -10,7 +10,7 @@ readme = "README.md"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-curve_fitter = {path="../curve_fitter"}
+curve_fitter = { path = "../curve_fitter", default-features = false }
 kurbo = {workspace = true}
 wasm-bindgen = { version = "0.2",features = ["serde-serialize"] }
 js-sys = { version = "0.3" }
