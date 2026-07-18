@@ -2,7 +2,10 @@
 name = "web-demo"
 version = "0.1.0"
 edition = "2024"
-
+license = "MIT"
+description = "Web demo for curve_fitter"
+repository = "https://github.com/santhoshtr/kurbo-curve-fit-stroke"
+readme = "README.md"
 [lib]
 crate-type = ["cdylib", "rlib"]
 
