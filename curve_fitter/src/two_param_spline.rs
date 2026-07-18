@@ -90,7 +90,7 @@ impl TwoParamSpline {
     /// Perform one iteration of the curve fitting solver
     pub fn iter_solver(&mut self, iter: usize, curve: &TwoParamCurve) -> f64 {
         let n = self.ctrl_pts.len();
-        if n < 3 {
+        if n < 2 {
             return 0.0;
         }
 
@@ -110,6 +110,12 @@ impl TwoParamSpline {
             let avgth = (self.ths[0] + self.ths[n - 1]) / 2.0;
             self.ths[0] = avgth;
             self.ths[n - 1] = avgth;
+        }
+
+        // A 2-point spline has no interior points: only the endpoint tangent
+        // corrections above apply, iterated to a fixed point by the caller.
+        if n < 3 {
+            return 0.0;
         }
 
         let mut abs_err = 0.0;

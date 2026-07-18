@@ -143,11 +143,11 @@ impl Spline {
                 let n_iter = 10;
                 inner.initial_ths();
                 let curve = TwoParamCurve::new();
+                // Run all iterations: the returned error covers only interior
+                // curvature continuity, not the endpoint-tangent corrections,
+                // which converge by iteration.
                 for k in 0..n_iter {
-                    let err = inner.iter_solver(k, &curve);
-                    if err < 1e-6 {
-                        break;
-                    }
+                    inner.iter_solver(k, &curve);
                 }
 
                 // Store results back to control points
