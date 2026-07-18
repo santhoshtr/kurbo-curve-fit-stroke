@@ -4,6 +4,8 @@ use clap::Parser;
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(test)]
+mod golden_tests;
 mod test_runner;
 mod test_schema;
 

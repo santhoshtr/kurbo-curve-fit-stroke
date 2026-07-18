@@ -12,9 +12,151 @@ use crate::test_schema::{InputPointJson, TestCase};
 use curve_fitter::var_stroke::VariableStroke;
 use curve_fitter::var_stroker::VariableStroker;
 use curve_fitter::{
-    InputPoint, PointType, SkeletonInfo, StrokeRefitterConfig, fit_curve, refit_stroke,
-    register_skeleton_for_preservation,
+    InputPoint, PointType, RefitDiagnostics, SkeletonInfo, StrokeRefitterConfig, fit_curve,
+    refit_stroke, register_skeleton_for_preservation,
 };
+
+/// Result of one operation of a test case
+pub struct StageOutput {
+    pub operation: String,
+    /// Path produced by the operation (None for register_skeleton)
+    pub path: Option<BezPath>,
+    /// Diagnostics for refit operations
+    pub diagnostics: Option<RefitDiagnostics>,
+}
+
+/// Execute the operations of a test case and return each stage's output
+pub fn execute_operations(test_case: &TestCase) -> Result<Vec<StageOutput>, String> {
+    let input_points = convert_points(&test_case.input.points)?;
+    let is_closed = test_case.input.is_closed;
+
+    let mut fitted_path: Option<BezPath> = None;
+    let mut stroke_path: Option<BezPath> = None;
+    let mut stroke_widths: Option<Vec<f64>> = None;
+    let mut skeleton_info: Option<SkeletonInfo> = None;
+    let mut stages = Vec::new();
+
+    for operation in &test_case.operations {
+        let mut stage = StageOutput {
+            operation: operation.clone(),
+            path: None,
+            diagnostics: None,
+        };
+
+        match operation.as_str() {
+            "fit_curve" => {
+                let path = fit_curve(input_points.clone(), is_closed)?;
+                fitted_path = Some(path.clone());
+                stage.path = Some(path);
+            }
+            "stroke" => {
+                let fitted = fitted_path
+                    .as_ref()
+                    .ok_or_else(|| "fit_curve must be executed before stroke".to_string())?;
+
+                let stroke_config = test_case.stroke.as_ref().ok_or_else(|| {
+                    "stroke configuration required for stroke operation".to_string()
+                })?;
+
+                // Validate width count matches point count
+                if stroke_config.widths.len() != input_points.len() {
+                    return Err(format!(
+                        "Width count mismatch: expected {}, got {}",
+                        input_points.len(),
+                        stroke_config.widths.len()
+                    ));
+                }
+
+                let stroker = VariableStroker::new(stroke_config.tolerance);
+                let path = stroker.stroke(fitted, &stroke_config.widths, &VariableStroke::default())?;
+
+                stroke_widths = Some(stroke_config.widths.clone());
+                stroke_path = Some(path.clone());
+                stage.path = Some(path);
+            }
+            "refit_stroke" => {
+                let stroked = stroke_path
+                    .as_ref()
+                    .ok_or_else(|| "stroke must be executed before refit_stroke".to_string())?;
+
+                let (path, diagnostics) =
+                    refit_stroke(stroked, None, &StrokeRefitterConfig::new())?;
+                stage.path = Some(path);
+                stage.diagnostics = Some(diagnostics);
+            }
+            "register_skeleton" => {
+                let fitted = fitted_path.as_ref().ok_or_else(|| {
+                    "fit_curve must be executed before register_skeleton".to_string()
+                })?;
+
+                let widths = stroke_widths.as_ref().ok_or_else(|| {
+                    "stroke must be executed before register_skeleton".to_string()
+                })?;
+
+                skeleton_info = Some(register_skeleton_for_preservation(
+                    fitted,
+                    &input_points,
+                    widths,
+                )?);
+            }
+            "refit_stroke_with_skeleton" => {
+                let stroked = stroke_path.as_ref().ok_or_else(|| {
+                    "stroke must be executed before refit_stroke_with_skeleton".to_string()
+                })?;
+
+                let skeleton = skeleton_info.as_ref().ok_or_else(|| {
+                    "register_skeleton must be executed before refit_stroke_with_skeleton"
+                        .to_string()
+                })?;
+
+                let (path, diagnostics) =
+                    refit_stroke(stroked, Some(skeleton), &StrokeRefitterConfig::new())?;
+                stage.path = Some(path);
+                stage.diagnostics = Some(diagnostics);
+            }
+            _ => return Err(format!("Unknown operation: {}", operation)),
+        }
+
+        stages.push(stage);
+    }
+
+    Ok(stages)
+}
+
+/// Output filename configured for an operation, if any
+fn output_filename<'a>(test_case: &'a TestCase, operation: &str) -> Option<&'a String> {
+    match operation {
+        "fit_curve" => test_case.outputs.fitted_curve.as_ref(),
+        "stroke" => test_case.outputs.stroke_outline.as_ref(),
+        "refit_stroke" => test_case.outputs.refitted_stroke.as_ref(),
+        "refit_stroke_with_skeleton" => test_case.outputs.skeleton_corrected.as_ref(),
+        _ => None,
+    }
+}
+
+/// Convert JSON input points to library InputPoint format
+fn convert_points(json_points: &[InputPointJson]) -> Result<Vec<InputPoint>, String> {
+    json_points
+        .iter()
+        .map(|p| {
+            let point_type = match p.point_type.as_str() {
+                "Smooth" => PointType::Smooth,
+                "Corner" => PointType::Corner,
+                "LineToCurve" => PointType::LineToCurve,
+                "CurveToLine" => PointType::CurveToLine,
+                _ => return Err(format!("Unknown point type: {}", p.point_type)),
+            };
+
+            Ok(InputPoint {
+                x: p.x,
+                y: p.y,
+                point_type,
+                incoming_angle: p.incoming_angle,
+                outgoing_angle: p.outgoing_angle,
+            })
+        })
+        .collect()
+}
 
 /// Test execution engine
 pub struct TestRunner {
@@ -45,162 +187,29 @@ impl TestRunner {
         println!("\n=== Running test: {} ===", test_case.name);
         println!("Description: {}", test_case.description);
 
-        let mut intermediate_results = IntermediateResults::default();
+        let stages = execute_operations(test_case)?;
 
-        // Convert input points from JSON
-        let input_points = self.convert_points(&test_case.input.points)?;
-        let is_closed = test_case.input.is_closed;
+        for stage in &stages {
+            println!("  → {}", stage.operation);
 
-        // Store for skeleton registration
-        intermediate_results.input_points = Some(input_points.clone());
-        intermediate_results.is_closed = is_closed;
+            if let Some(diagnostics) = &stage.diagnostics {
+                print_diagnostics(diagnostics);
+            }
 
-        // Execute each operation in sequence
-        for operation in &test_case.operations {
-            match operation.as_str() {
-                "fit_curve" => {
-                    println!("  → fit_curve");
-                    let fitted_path = fit_curve(input_points.clone(), is_closed)?;
-                    intermediate_results.fitted_path = Some(fitted_path.clone());
+            if stage.operation == "register_skeleton" {
+                println!("    Skeleton registered for angle preservation");
+            }
 
-                    // Write SVG if output configured
-                    if let Some(filename) = &test_case.outputs.fitted_curve {
-                        self.write_svg(&format!("{}.svg", filename), &fitted_path)?;
-                        println!("    Written: outputs/{}.svg", filename);
-                    }
-                }
-                "stroke" => {
-                    println!("  → stroke");
-                    let fitted_path = intermediate_results
-                        .fitted_path
-                        .as_ref()
-                        .ok_or_else(|| "fit_curve must be executed before stroke".to_string())?;
-
-                    let stroke_config = test_case.stroke.as_ref().ok_or_else(|| {
-                        "stroke configuration required for stroke operation".to_string()
-                    })?;
-
-                    // Validate width count matches point count
-                    let point_count = input_points.len();
-                    if stroke_config.widths.len() != point_count {
-                        return Err(format!(
-                            "Width count mismatch: expected {}, got {}",
-                            point_count,
-                            stroke_config.widths.len()
-                        ));
-                    }
-
-                    let stroker = VariableStroker::new(stroke_config.tolerance);
-                    let stroke_style = VariableStroke::default();
-                    let stroke_path =
-                        stroker.stroke(fitted_path, &stroke_config.widths, &stroke_style)?;
-
-                    intermediate_results.stroke_path = Some(stroke_path.clone());
-                    intermediate_results.stroke_widths = Some(stroke_config.widths.clone());
-
-                    // Write SVG if output configured
-                    if let Some(filename) = &test_case.outputs.stroke_outline {
-                        self.write_svg(&format!("{}.svg", filename), &stroke_path)?;
-                        println!("    Written: outputs/{}.svg", filename);
-                    }
-                }
-                "refit_stroke" => {
-                    println!("  → refit_stroke");
-                    let stroke_path = intermediate_results
-                        .stroke_path
-                        .as_ref()
-                        .ok_or_else(|| "stroke must be executed before refit_stroke".to_string())?;
-
-                    let config = StrokeRefitterConfig::new();
-                    let (refitted_path, diagnostics) = refit_stroke(stroke_path, None, &config)?;
-                    print_diagnostics(&diagnostics);
-
-                    intermediate_results.refitted_path = Some(refitted_path.clone());
-
-                    // Write SVG if output configured
-                    if let Some(filename) = &test_case.outputs.refitted_stroke {
-                        self.write_svg(&format!("{}.svg", filename), &refitted_path)?;
-                        println!("    Written: outputs/{}.svg", filename);
-                    }
-                }
-                "register_skeleton" => {
-                    println!("  → register_skeleton");
-                    let fitted_path =
-                        intermediate_results.fitted_path.as_ref().ok_or_else(|| {
-                            "fit_curve must be executed before register_skeleton".to_string()
-                        })?;
-
-                    let skeleton_angles = intermediate_results
-                        .input_points
-                        .as_ref()
-                        .ok_or_else(|| "input_points not available".to_string())?;
-
-                    let widths = intermediate_results.stroke_widths.as_ref().ok_or_else(|| {
-                        "stroke must be executed before register_skeleton".to_string()
-                    })?;
-
-                    let skeleton_info =
-                        register_skeleton_for_preservation(fitted_path, skeleton_angles, widths)?;
-
-                    intermediate_results.skeleton_info = Some(skeleton_info);
-                    println!("    Skeleton registered for angle preservation");
-                }
-                "refit_stroke_with_skeleton" => {
-                    println!("  → refit_stroke_with_skeleton");
-                    let stroke_path =
-                        intermediate_results.stroke_path.as_ref().ok_or_else(|| {
-                            "stroke must be executed before refit_stroke_with_skeleton".to_string()
-                        })?;
-
-                    let skeleton_info =
-                        intermediate_results.skeleton_info.as_ref().ok_or_else(|| {
-                            "register_skeleton must be executed before refit_stroke_with_skeleton"
-                                .to_string()
-                        })?;
-
-                    let config = StrokeRefitterConfig::new();
-                    let (skeleton_corrected, diagnostics) =
-                        refit_stroke(stroke_path, Some(skeleton_info), &config)?;
-                    print_diagnostics(&diagnostics);
-
-                    intermediate_results.skeleton_corrected = Some(skeleton_corrected.clone());
-
-                    // Write SVG if output configured
-                    if let Some(filename) = &test_case.outputs.skeleton_corrected {
-                        self.write_svg(&format!("{}.svg", filename), &skeleton_corrected)?;
-                        println!("    Written: outputs/{}.svg", filename);
-                    }
-                }
-                _ => return Err(format!("Unknown operation: {}", operation)),
+            if let Some(path) = &stage.path
+                && let Some(filename) = output_filename(test_case, &stage.operation)
+            {
+                self.write_svg(&format!("{}.svg", filename), path)?;
+                println!("    Written: outputs/{}.svg", filename);
             }
         }
 
         println!("✓ Test completed successfully");
         Ok(())
-    }
-
-    /// Convert JSON input points to library InputPoint format
-    fn convert_points(&self, json_points: &[InputPointJson]) -> Result<Vec<InputPoint>, String> {
-        json_points
-            .iter()
-            .map(|p| {
-                let point_type = match p.point_type.as_str() {
-                    "Smooth" => PointType::Smooth,
-                    "Corner" => PointType::Corner,
-                    "LineToCurve" => PointType::LineToCurve,
-                    "CurveToLine" => PointType::CurveToLine,
-                    _ => return Err(format!("Unknown point type: {}", p.point_type)),
-                };
-
-                Ok(InputPoint {
-                    x: p.x,
-                    y: p.y,
-                    point_type,
-                    incoming_angle: p.incoming_angle,
-                    outgoing_angle: p.outgoing_angle,
-                })
-            })
-            .collect()
     }
 
     /// Write a BezPath as an SVG file
@@ -215,7 +224,7 @@ impl TestRunner {
 }
 
 /// Print refit diagnostics collected by the library
-fn print_diagnostics(diagnostics: &curve_fitter::RefitDiagnostics) {
+fn print_diagnostics(diagnostics: &RefitDiagnostics) {
     if diagnostics.misclassified_corners > 0 {
         println!(
             "    Misclassified corners: {} detected, {} corrected",
@@ -231,19 +240,6 @@ fn print_diagnostics(diagnostics: &curve_fitter::RefitDiagnostics) {
     for warning in &diagnostics.warnings {
         println!("    Warning: {}", warning);
     }
-}
-
-/// Intermediate results stored during test execution
-#[derive(Debug, Default)]
-struct IntermediateResults {
-    input_points: Option<Vec<InputPoint>>,
-    is_closed: bool,
-    fitted_path: Option<BezPath>,
-    stroke_path: Option<BezPath>,
-    stroke_widths: Option<Vec<f64>>,
-    refitted_path: Option<BezPath>,
-    skeleton_info: Option<SkeletonInfo>,
-    skeleton_corrected: Option<BezPath>,
 }
 
 /// Convert a BezPath to SVG string
@@ -290,8 +286,6 @@ mod tests {
 
     #[test]
     fn test_point_conversion() {
-        let runner = TestRunner::new(false, false, PathBuf::from("outputs"));
-
         let json_points = vec![
             InputPointJson {
                 x: 50.0,
@@ -309,7 +303,7 @@ mod tests {
             },
         ];
 
-        let result = runner.convert_points(&json_points);
+        let result = convert_points(&json_points);
         assert!(result.is_ok());
 
         let points = result.unwrap();
