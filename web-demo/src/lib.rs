@@ -287,10 +287,17 @@ pub struct CurveSegment {
     cp2_y: f64,
     end_x: f64,
     end_y: f64,
+    /// True if this segment begins a new subpath (preceded by a MoveTo)
+    subpath_start: bool,
 }
 
 #[wasm_bindgen]
 impl CurveSegment {
+    #[wasm_bindgen(getter)]
+    pub fn subpath_start(&self) -> bool {
+        self.subpath_start
+    }
+
     #[wasm_bindgen(getter)]
     pub fn start_x(&self) -> f64 {
         self.start_x
@@ -396,11 +403,13 @@ fn skeleton_path_to_input_points(
 fn bez_path_to_segments(bez_path: &BezPath) -> Vec<CurveSegment> {
     let mut segments = Vec::new();
     let mut current_pos = Point::new(0.0, 0.0);
+    let mut new_subpath = true;
 
     for element in bez_path.elements() {
         match element {
             kurbo::PathEl::MoveTo(pt) => {
                 current_pos = *pt;
+                new_subpath = true;
             }
             kurbo::PathEl::LineTo(pt) => {
                 segments.push(CurveSegment {
@@ -412,7 +421,9 @@ fn bez_path_to_segments(bez_path: &BezPath) -> Vec<CurveSegment> {
                     cp2_y: current_pos.y + 2.0 * (pt.y - current_pos.y) / 3.0,
                     end_x: pt.x,
                     end_y: pt.y,
+                    subpath_start: new_subpath,
                 });
+                new_subpath = false;
                 current_pos = *pt;
             }
             kurbo::PathEl::CurveTo(cp1, cp2, end) => {
@@ -425,7 +436,9 @@ fn bez_path_to_segments(bez_path: &BezPath) -> Vec<CurveSegment> {
                     cp2_y: cp2.y,
                     end_x: end.x,
                     end_y: end.y,
+                    subpath_start: new_subpath,
                 });
+                new_subpath = false;
                 current_pos = *end;
             }
             kurbo::PathEl::QuadTo(cp, end) => {
@@ -441,7 +454,9 @@ fn bez_path_to_segments(bez_path: &BezPath) -> Vec<CurveSegment> {
                     cp2_y: cp2.y,
                     end_x: end.x,
                     end_y: end.y,
+                    subpath_start: new_subpath,
                 });
+                new_subpath = false;
                 current_pos = *end;
             }
             kurbo::PathEl::ClosePath => {
@@ -1085,4 +1100,31 @@ pub fn curve_to_svg_path_with_stroke_and_skeleton(
 #[wasm_bindgen(start)]
 pub fn main() {
     console_error_panic_hook::set_once();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_segments_mark_subpath_starts() {
+        // Two disjoint closed subpaths, like a stroke outline of a closed path
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.curve_to((10.0, 0.0), (20.0, 10.0), (30.0, 10.0));
+        path.curve_to((20.0, 20.0), (10.0, 10.0), (0.0, 0.0));
+        path.close_path();
+        path.move_to((100.0, 100.0));
+        path.line_to((150.0, 100.0));
+        path.close_path();
+
+        let segments = bez_path_to_segments(&path);
+        let flags: Vec<bool> = segments.iter().map(|s| s.subpath_start).collect();
+        assert_eq!(flags, vec![true, false, true]);
+
+        // Second subpath's first segment starts at its own MoveTo,
+        // not at the end of the previous subpath
+        assert_eq!(segments[2].start_x, 100.0);
+        assert_eq!(segments[2].start_y, 100.0);
+    }
 }

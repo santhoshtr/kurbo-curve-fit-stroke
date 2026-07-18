@@ -801,13 +801,14 @@ class CurveFitterDemo {
 
     ctx.beginPath();
 
-    const startScreen = this.cartesianToScreen(
-      segments[0].start_x,
-      segments[0].start_y,
-    );
-    ctx.moveTo(startScreen.x, startScreen.y);
-
     for (const segment of segments) {
+      if (segment.subpath_start) {
+        const startScreen = this.cartesianToScreen(
+          segment.start_x,
+          segment.start_y,
+        );
+        ctx.moveTo(startScreen.x, startScreen.y);
+      }
       const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
       const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
       const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
@@ -836,13 +837,14 @@ class CurveFitterDemo {
 
     ctx.beginPath();
 
-    const startScreen = this.cartesianToScreen(
-      segments[0].start_x,
-      segments[0].start_y,
-    );
-    ctx.moveTo(startScreen.x, startScreen.y);
-
     for (const segment of segments) {
+      if (segment.subpath_start) {
+        const startScreen = this.cartesianToScreen(
+          segment.start_x,
+          segment.start_y,
+        );
+        ctx.moveTo(startScreen.x, startScreen.y);
+      }
       const cp1Screen = this.cartesianToScreen(segment.cp1_x, segment.cp1_y);
       const cp2Screen = this.cartesianToScreen(segment.cp2_x, segment.cp2_y);
       const endScreen = this.cartesianToScreen(segment.end_x, segment.end_y);
@@ -857,7 +859,7 @@ class CurveFitterDemo {
       );
     }
     ctx.closePath();
-    ctx.fill();
+    ctx.fill("evenodd");
     ctx.stroke();
   }
 
