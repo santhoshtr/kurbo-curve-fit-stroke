@@ -214,10 +214,26 @@ impl Spline {
                 (Some(l_ak), Some(r_ak)) if l_ak.signum() == r_ak.signum() => {
                     let r_k = my_tan(r_ak) / self.chord_len(i as isize - 1);
                     let l_k = my_tan(l_ak) / self.chord_len(i as isize);
+                    // Only blend where the two sides roughly agree: the
+                    // harmonic mean is then close to both and the handle
+                    // adjustment is a small G2 correction. Where they
+                    // disagree, forcing a compromise curvature distorts the
+                    // shape more than the G2 gain is worth.
+                    let ratio = l_k / r_k;
+                    if !(0.5..=2.0).contains(&ratio) {
+                        continue;
+                    }
                     2.0 / (1.0 / r_k + 1.0 / l_k)
                 }
-                // Curvature signs disagree, or one side is a line: blend
-                // toward zero curvature
+                // Curvature reversal (inflection at this point): forcing zero
+                // curvature here lengthens both handles to 0.5 of the
+                // derivative and visibly flattens the curve, so keep the
+                // solver's G1 result instead. (The reference sets kBlend = 0
+                // but its own commented-out code says "Don't blend
+                // reversals"; measured fidelity confirms it.)
+                (Some(_), Some(_)) => continue,
+                // One side is a straight line: zero curvature is the true
+                // target there
                 _ => 0.0,
             };
             self.ctrl_pts[i].k_blend = Some(k_blend);
@@ -316,37 +332,75 @@ mod tests {
 
     #[test]
     fn test_curvature_blending_at_explicit_tangent() {
-        // An explicit-tangent smooth point splits the spline into two
-        // independently solved runs; blending must record a target curvature
-        // there so render() can reconcile the two sides.
-        let points = vec![
-            InputPoint {
-                x: 0.0,
-                y: 0.0,
-                point_type: PointType::Smooth,
-                incoming_angle: None,
-                outgoing_angle: None,
-            },
-            InputPoint {
+        // Symmetric arch with the apex tangent pinned horizontally: both
+        // sides curve the same way with equal curvature, so the apex gets a
+        // blended target curvature.
+        let arch = |middle: InputPoint| {
+            vec![
+                InputPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
+                },
+                middle,
+                InputPoint {
+                    x: 200.0,
+                    y: 0.0,
+                    point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
+                },
+            ]
+        };
+
+        let mut spline = Spline::new(
+            arch(InputPoint {
                 x: 100.0,
-                y: 60.0,
+                y: 50.0,
                 point_type: PointType::Smooth,
-                incoming_angle: Some(20.0),
-                outgoing_angle: Some(20.0),
-            },
-            InputPoint {
-                x: 200.0,
-                y: 0.0,
-                point_type: PointType::Smooth,
-                incoming_angle: None,
-                outgoing_angle: None,
-            },
-        ];
-        let mut spline = Spline::new(points, false);
+                incoming_angle: Some(0.0),
+                outgoing_angle: Some(0.0),
+            }),
+            false,
+        );
         spline.solve().unwrap();
         assert!(spline.ctrl_pts[1].k_blend.is_some());
         // Free endpoints are not blended
         assert!(spline.ctrl_pts[0].k_blend.is_none());
+
+        // S-shaped: the pinned middle point is a curvature reversal, which
+        // must NOT be blended (forcing zero curvature there flattens the
+        // curve visibly).
+        let mut spline = Spline::new(
+            vec![
+                InputPoint {
+                    x: 0.0,
+                    y: 0.0,
+                    point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
+                },
+                InputPoint {
+                    x: 100.0,
+                    y: 50.0,
+                    point_type: PointType::Smooth,
+                    incoming_angle: Some(10.0),
+                    outgoing_angle: Some(10.0),
+                },
+                InputPoint {
+                    x: 200.0,
+                    y: 100.0,
+                    point_type: PointType::Smooth,
+                    incoming_angle: None,
+                    outgoing_angle: None,
+                },
+            ],
+            false,
+        );
+        spline.solve().unwrap();
+        assert!(spline.ctrl_pts[1].k_blend.is_none());
     }
 
     #[test]
