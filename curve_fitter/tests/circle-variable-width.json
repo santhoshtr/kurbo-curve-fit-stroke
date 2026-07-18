@@ -1,0 +1,24 @@
+{
+  "name": "circle-variable-width",
+  "description": "Closed circle with one wider point; regression for the seam wrap-around duplicate that made refit fail and fall back to the raw outline",
+  "test_type": "fit_and_stroke",
+  "input": {
+    "points": [
+      { "x": 272.0, "y": 92.0, "point_type": "Smooth" },
+      { "x": 472.0, "y": 292.0, "point_type": "Smooth" },
+      { "x": 275.0, "y": 489.0, "point_type": "Smooth" },
+      { "x": 72.0, "y": 295.0, "point_type": "Smooth" }
+    ],
+    "is_closed": true
+  },
+  "stroke": {
+    "widths": [20.0, 60.0, 20.0, 20.0],
+    "tolerance": 0.1
+  },
+  "operations": ["fit_curve", "stroke", "refit_stroke"],
+  "outputs": {
+    "fitted_curve": "circle-var-fitted",
+    "stroke_outline": "circle-var-stroke",
+    "refitted_stroke": "circle-var-refitted"
+  }
+}

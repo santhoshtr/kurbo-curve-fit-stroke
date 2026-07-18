@@ -240,6 +240,30 @@ pub(super) fn subpath_to_input_points(
         input_points.push(point);
     }
 
+    // A closed subpath can yield coincident first and last points (e.g. a
+    // zero-length lead-in join segment at the seam); the consecutive-pair
+    // dedup above never compares the two ends. Merge them so the closed fit
+    // does not see a zero-length chord: the last point carries the real
+    // incoming tangent, the first the outgoing one.
+    if subpath.is_closed && input_points.len() >= 2 {
+        let first = &input_points[0];
+        let last = &input_points[input_points.len() - 1];
+        let dx = last.x - first.x;
+        let dy = last.y - first.y;
+        if dx * dx + dy * dy < dedup_epsilon * dedup_epsilon {
+            let last = input_points.pop().unwrap();
+            let first = &mut input_points[0];
+            first.incoming_angle = last.incoming_angle.or(first.incoming_angle);
+            first.outgoing_angle = first.outgoing_angle.or(last.outgoing_angle);
+            first.point_type =
+                if is_corner(first.incoming_angle, first.outgoing_angle, corner_threshold) {
+                    PointType::Corner
+                } else {
+                    PointType::Smooth
+                };
+        }
+    }
+
     // For open paths, fix endpoint angles
     if !subpath.is_closed && !input_points.is_empty() {
         // First point has no incoming angle
@@ -323,6 +347,35 @@ mod tests {
         assert_eq!(subpaths.len(), 2);
         assert!(subpaths[0].is_closed);
         assert!(subpaths[1].is_closed);
+    }
+
+    #[test]
+    fn test_closed_subpath_merges_wraparound_duplicate() {
+        // Closed ring starting with a zero-length lead-in line, as emitted by
+        // the variable stroker's first join: the seam point would otherwise
+        // appear both as the first extracted point (from the degenerate line,
+        // with no incoming tangent) and as the last (end of the final curve).
+        let mut path = BezPath::new();
+        path.move_to((100.0, 0.0));
+        path.line_to((100.0, 0.0)); // zero-length join sliver
+        path.curve_to((100.0, 55.0), (55.0, 100.0), (0.0, 100.0));
+        path.curve_to((-55.0, 100.0), (-100.0, 55.0), (-100.0, 0.0));
+        path.curve_to((-100.0, -55.0), (-55.0, -100.0), (0.0, -100.0));
+        path.curve_to((55.0, -100.0), (100.0, -55.0), (100.0, 0.0));
+        path.close_path();
+
+        let subpaths = extract_subpaths(&path);
+        assert_eq!(subpaths.len(), 1);
+        let points = subpath_to_input_points(&subpaths[0], 15.0, 1e-6);
+
+        // 4 distinct on-curve points; the seam point appears exactly once
+        assert_eq!(points.len(), 4);
+        let seam = &points[0];
+        assert_eq!((seam.x, seam.y), (100.0, 0.0));
+        // Merged point has both tangents: incoming from the closing curve,
+        // outgoing from the first real curve
+        assert!(seam.incoming_angle.is_some());
+        assert!(seam.outgoing_angle.is_some());
     }
 
     #[test]
