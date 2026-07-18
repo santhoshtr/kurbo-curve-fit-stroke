@@ -186,7 +186,7 @@ mod tests {
         path.curve_to((120.0, 20.0), (140.0, 40.0), (160.0, 40.0));
 
         // 3 on-curve points
-        assert_eq!(count_width_points(&path.elements().to_vec()), 3);
+        assert_eq!(count_width_points(path.elements()), 3);
 
         let stroker = VariableStroker::new(0.1);
         let style = VariableStroke::default();
@@ -206,7 +206,7 @@ mod tests {
         path.line_to((0.0, 0.0));
         path.close_path();
 
-        assert_eq!(count_width_points(&path.elements().to_vec()), 3);
+        assert_eq!(count_width_points(path.elements()), 3);
 
         let stroker = VariableStroker::new(0.1);
         let style = VariableStroke::default();
