@@ -173,6 +173,23 @@ pub(super) fn subpath_to_input_points(
 
     let mut input_points: Vec<InputPoint> = Vec::new();
 
+    // The loop below emits one point per segment END, so the subpath's start
+    // point must be emitted explicitly for open subpaths. (On closed subpaths
+    // it reappears as the end of the closing segment.)
+    if !subpath.is_closed {
+        let outgoing_tangent = subpath
+            .segments
+            .iter()
+            .find_map(|segment| segment.start_tangent);
+        input_points.push(InputPoint {
+            x: subpath.start_point.x,
+            y: subpath.start_point.y,
+            point_type: PointType::Smooth,
+            incoming_angle: None,
+            outgoing_angle: outgoing_tangent.and_then(vec2_to_angle_degrees),
+        });
+    }
+
     for (i, segment) in subpath.segments.iter().enumerate() {
         // We're creating an InputPoint at segment.end_point.
         // For that point:
@@ -347,6 +364,26 @@ mod tests {
         assert_eq!(subpaths.len(), 2);
         assert!(subpaths[0].is_closed);
         assert!(subpaths[1].is_closed);
+    }
+
+
+    #[test]
+    fn test_open_subpath_keeps_first_point() {
+        let mut path = BezPath::new();
+        path.move_to((0.0, 0.0));
+        path.curve_to((10.0, 10.0), (20.0, 10.0), (30.0, 0.0));
+        path.curve_to((40.0, -10.0), (50.0, -10.0), (60.0, 0.0));
+
+        let subpaths = extract_subpaths(&path);
+        let points = subpath_to_input_points(&subpaths[0], 15.0, 1e-6);
+
+        // All three on-curve points, starting with the MoveTo point
+        assert_eq!(points.len(), 3);
+        assert_eq!((points[0].x, points[0].y), (0.0, 0.0));
+        assert_eq!(points[0].incoming_angle, None);
+        assert!(points[0].outgoing_angle.is_some());
+        assert_eq!((points[2].x, points[2].y), (60.0, 0.0));
+        assert_eq!(points[2].outgoing_angle, None);
     }
 
     #[test]
